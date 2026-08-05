@@ -30,6 +30,21 @@
 
 ---
 
+## Wave 2.5 — operator decisions at the blocking checkpoint (appended 2026-08-06, conductor)
+
+| ID | Status | Decision | Notes |
+|----|--------|----------|-------|
+| W2.5-1 | RESOLVED | X stays OUT of v1 despite new first-party pay-per-use option (~$50/mo). OD-7 closed; D-08 stands | Operator choice, recommendation followed |
+| W2.5-2 | RESOLVED | Reddit v1 = Reddit Pro + weekly human-curated inbox ritual (~1 hr/wk) APPROVED. OD-2/D-09 closed | Operator committed to the ritual; staleness flag designed in |
+| W2.5-3 | RESOLVED | Trend-vendor spend APPROVED: Virlo.ai Starter $49/mo gated on a 1-week trial (niche-fit check; Shortimize = fallback) + DataForSEO ~$10–15/mo. Total ~$60–65/mo | Virlo trial outcome remains an implementation gate |
+| W2.5-4 | **RESOLVED — synthesis recommendation OVERRULED** | D-02a REJECTED: operator chose **IDENTICAL asset mixes in both languages** (cs gets TikTok/Reels/Shorts in v1). D-02 stays literal. Production recipes still differ per language (cs video = TTS voice-over / carousel-to-reel; model-native cs speech stays banned per A4/C6) — identical MIX ≠ identical recipe. Doubled media spend accepted (OP-1 stands) | Operator choice against B4×A1×A4 lean; architecture must make cs short-form NOT look cheap (B4's warning becomes a design obligation, not a mix reduction) |
+| W2.5-5 | RESOLVED | Stack = **Python** confirmed. OD-5/D-06 closed | Per C2 verification |
+| W2.5-6 | RESOLVED | Higgsfield = ignore for v1 (no pipeline role; fal.ai stays registered fallback router). OD-3 closed | Per A2 H1 recommendation |
+| W2.5-7 | RESOLVED | Run cadence = **config knob, default OFF** (no runs until operator enables), with daily/weekly options; exact knob design (research cadence vs pack cadence, per-theme) is an architecture §10 task — conceptual design, no syntax | Operator: "settable in config — default off, otherwise daily/weekly; figure out the best way" |
+| W2.5-8 | RESOLVED | Notifications = **email** ("packs ready" + failure alerts) | Recommendation followed |
+
+Defaults adopted without a user gate (operator may veto at Stage 5): D-10 Notion split (REST internal token for cron/records, MCP for interactive); ElevenLabs primary cs TTS w/ Azure fallback; local FFmpeg assembly; 30-day raw-artifact retention default; DataForSEO as SERP vendor; human-reviewed periodic ranking calibration (no auto weight updates); Postiz trial deferred to implementation start; blog pipeline config-gated, deferred detail to implementation.
+
 ## Wave 2 synthesis — refinements to locked decisions (appended 2026-08-06, T16)
 
 *Refinements narrow or clarify a locked decision; they never reverse one. Each cites the owning brief.*
