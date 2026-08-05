@@ -48,7 +48,7 @@ Curated real-world winning content + brand context that research and architectur
 - `Winning Posts from competitors Linkedin.txt` — exemplar viral LinkedIn posts (en) → primary voice/hook evidence for T13, secondary for T1
 - `Gojiberry's 7 Figure GTM Playbook.txt`, `How Gojiberry went from 1M€ to 3.5M€ ARR in 3 months.txt`, `The-LinkedIn-High-Intent-Outreach-System-…​.md` (+2 PNGs) — competitor GTM/content playbooks → T1/T13 evidence for what actually works in this niche
 - `HypeLead Areas GTM_Marketing_Strategie.txt` — HypeLead's own GTM/ICP strategy (cs) → **brand context**, feeds T8 (Czech market) and T14 (brand-truth taxonomy: ICP segments already enumerated here)
-- `GojiBerry_YoutubeInspiration/*.txt` — **currently EMPTY placeholders (0 bytes)** → W0.5 asks the user to fill or drop them
+- `GojiBerry_YoutubeInspiration/*.txt` — **4 real GTM/growth video transcripts (~150 KB, confirmed W0.5; user: "analyze each meticulously")**: `GojiBerry_0_to_1_Mil.txt` (full GTM course, 0→$1M ARR multi-channel engine), `GojiBerry_90_Day_Playbook.txt` (customer-first GTM playbook), `GojiBerry_ColdEmail_01.txt` (cold-email playbook), `GojiBerry_Reddit_01.txt` (Reddit growth system — practitioner evidence for OD-2 Reddit stance) → feed T1 (content practices in-niche), T5 (Reddit evidence), T8 (niche/ICP context), T13 (voice/hook patterns)
 
 **Architectural consequence to carry forward (T13, T17 §6/§14):** brand voice should be grounded in a curated per-theme **exemplar corpus** (winning posts as few-shot/voice reference), not rules alone — this folder is the first theme's seed corpus, and the theme config concept must have a place for it.
 

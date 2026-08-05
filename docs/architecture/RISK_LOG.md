@@ -35,4 +35,5 @@
 
 | ID | Risk | Consequence | Owner |
 |----|------|-------------|-------|
-| OP-1 | D-02 doubles media spend against trial quotas (cs + en = 2× video generations per pack) | Kie trial credits exhausted mid-evaluation; unit economics must price the doubling explicitly | T2 (economics), §5, W0.5 (credit facts) |
+| OP-1 | D-02 doubles media spend against trial quotas (cs + en = 2× video generations per pack); confirmed W0.5: only **$50 Kie credits** exist | Kie trial credits exhausted mid-evaluation; unit economics must price the doubling explicitly against the $50 reality | T2 (economics), §5 |
+| OP-2 | No Postiz account exists yet (W0.5) → draft-without-schedule kill-switch question cannot be verified empirically during design | Distribution architecture rests on paper claims; fallback ladder (internal draft → far-future schedule → local-only staging + manual paste) must be designed as first-class, and Postiz capability verification becomes an implementation-phase acceptance criterion | T9, §7 |
