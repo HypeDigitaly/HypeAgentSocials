@@ -61,6 +61,7 @@ docs/
   research/
     A1_viral_video_practices.md  A2_video_providers.md  A3_video_prompts_skills.md  A4_assembly_postproduction.md
     B1_sources.md  B2_extraction_methods.md  B3_ranking_scheduling.md  B4_czech_b2b_market.md
+    B5_trend_intelligence_platforms.md   (late W1 addition, operator-requested 2026-08-06: TikTok/IG/YouTube deep-dive + buy-vs-build on trend-watching platforms; T16 folds it into SYNTHESIS as addendum; W2.5 + W3 consume it)
     C1_notion_postiz_integration.md  C2_platform_constraints_stack.md  C3_cron_ops_state.md
     C4_operator_review_ux.md  C5_voice_models_judge.md  C6_brand_truth_design.md  C7_legal_compliance.md
     SYNTHESIS.md                        (W2)
