@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>"AI agents" - Google News</title>
+    <item>
+      <title>Startup launches AI agents platform for lead generation</title>
+      <link>https://example-news.com/ai-agents-lead-gen?utm_source=google</link>
+      <guid>gnews-en-1</guid>
+      <pubDate>Mon, 03 Aug 2026 09:00:00 GMT</pubDate>
+      <description>A new startup unveiled an AI agents platform aimed at sales automation and lead generation.</description>
+    </item>
+    <item>
+      <title>Voice AI agents are reshaping customer support</title>
+      <link>https://example-news.com/voice-ai-agents-support</link>
+      <guid>gnews-en-2</guid>
+      <pubDate>Tue, 04 Aug 2026 09:00:00 GMT</pubDate>
+      <description>Voice agents are increasingly used for customer support automation.</description>
+    </item>
+  </channel>
+</rss>

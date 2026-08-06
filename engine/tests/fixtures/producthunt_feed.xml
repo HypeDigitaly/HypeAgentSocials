@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Product Hunt</title>
+    <item>
+      <title>LeadPilot — AI agents for outbound sales automation</title>
+      <link>https://www.producthunt.com/posts/leadpilot</link>
+      <guid>ph-1</guid>
+      <pubDate>Mon, 03 Aug 2026 08:00:00 GMT</pubDate>
+      <description>LeadPilot is an AI agent that automates outbound lead generation for agencies.</description>
+    </item>
+  </channel>
+</rss>

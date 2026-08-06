@@ -1,0 +1,4 @@
+[
+  {"id": "acme/cool-sales-agent", "likes": 540, "downloads": 12000, "pipeline_tag": "text-generation", "tags": ["agent", "rag", "sales"]},
+  {"id": "acme/voice-rag-model", "likes": 90, "downloads": 2000, "pipeline_tag": "audio-to-audio", "tags": ["voice", "rag"]}
+]

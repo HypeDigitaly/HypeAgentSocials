@@ -1,0 +1,149 @@
+# =============================================================================
+# THEME: hypedigitaly — Phase-1 minimal research block (§10.2)
+# =============================================================================
+# Governing plan: docs/architecture/ARCHITECTURE_PLAN.md §10.2 (research
+# block), §2.3 (source portfolio), §2.7 (ranking architecture), §17.2
+# (Phase-1 scope). This is the narrowest theme config Phase 1 needs: an
+# AI agency's watch topics/ICP terms, the four free collectors' per-source
+# budgets and families, and the ranking-config block with
+# `ranking_config_version: 1`.
+#
+# FAIL-CLOSED: missing or unreadable -> ConfigError (hypeagent.config_load
+# .load_theme_research_config). A run cannot collect or rank without
+# knowing what it is watching for.
+# =============================================================================
+
+theme:
+  name: hypedigitaly
+  languages: [en, cs]
+
+research:
+  # Watch topics: the seed for every query-shaped collector and the
+  # reference set for the Phase-1 deterministic brand-fit heuristic.
+  watch_topics:
+    en:
+      - "AI agents"
+      - "chatbots"
+      - "lead generation"
+      - "sales automation"
+      - "RAG"
+      - "retrieval augmented generation"
+      - "voice agents"
+      - "voice AI"
+      - "LLM apps"
+      - "customer support automation"
+      - "AI sales"
+      - "outbound automation"
+    cs:
+      - "AI agenti"
+      - "chatboti"
+      - "generování leadů"
+      - "automatizace prodeje"
+      - "hlasoví asistenti"
+      - "hlasové AI"
+      - "LLM aplikace"
+      - "automatizace zákaznické podpory"
+      - "AI v prodeji"
+
+  # ICP terms: who this brand sells to — used the same way as watch topics
+  # in the Phase-1 fit heuristic (§2.7: "weighted keyword/term overlap
+  # against the theme's watch topics + ICP terms").
+  icp_terms:
+    en:
+      - "agency"
+      - "marketing agency"
+      - "sales team"
+      - "SaaS"
+      - "SDR"
+      - "outbound"
+      - "small business"
+    cs:
+      - "agentura"
+      - "marketingová agentura"
+      - "obchodní tým"
+      - "malá firma"
+
+  # Source roster (§2.3), Phase-1: the four free collectors only.
+  sources:
+    hacker_news:
+      enabled: true
+      family: developer_technical_discourse
+      budget_max_calls: 40   # topstories + up to 39 item fetches
+      circuit_breaker_threshold: 3
+
+    google_news:
+      enabled: true
+      family_en: editorial_relay
+      family_cs: czech_native_news
+      circuit_breaker_threshold: 3
+      queries:
+        en:
+          - "AI agents"
+          - "AI sales automation"
+          - "AI chatbot startup"
+          - "voice AI agents"
+        cs:
+          - "AI agenti"
+          - "chatboti pro firmy"
+          - "hlasoví asistenti AI"
+
+    hugging_face:
+      enabled: true
+      family: launch_registries
+      limit: 20
+      circuit_breaker_threshold: 3
+
+    product_hunt:
+      enabled: true
+      family: launch_registries
+      circuit_breaker_threshold: 3
+
+ranking:
+  ranking_config_version: 1
+
+  # Fit gate.
+  brand_fit_floor: 0.35   # directional starting default (§2.7)
+
+  # Top-N cap, applied AFTER filtering (§2.7, §10.2).
+  top_n_per_language: 3
+
+  # Freshness half-life per signal class, hours. Directional starting
+  # values only (§2.7) — ad-creative is absent in Phase 1.
+  freshness_half_life_hours:
+    spike: 6
+    rising: 24
+    launch-hype: 72
+    evergreen-pain: 720
+
+  # Baseline window for counted-evidence percentile normalization.
+  baseline_lookback_days: 90
+
+  # Absolute-band fallback thresholds, used before ~14 days of trailing
+  # baseline exist (§2.7), per counted-evidence source.
+  absolute_band_fallback:
+    hacker_news:
+      low: 5
+      mid: 50
+      high: 200
+    hugging_face:
+      low: 10
+      mid: 100
+      high: 1000
+
+  # Cross-day dedupe (§2.8a).
+  dedupe_lookback_days: 30
+  rejection_suppression_days: 14
+  corroboration_growth_override_families: 2
+  new_angle_min_new_signals: 3
+
+  # Corroboration bonus magnitude (§2.7, §10.2).
+  corroboration_bonus: 0.15
+
+  # Per-language minimum evidence-and-volume band (§2.7), loose defaults.
+  evidence_floor:
+    en:
+      min_candidates: 1
+      min_families: 1
+    cs:
+      min_candidates: 1
+      min_families: 1

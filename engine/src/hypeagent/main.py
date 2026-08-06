@@ -19,6 +19,7 @@ from hypeagent import __version__ as ENGINE_VERSION
 from hypeagent import render_trace, run_identity, run_ledger, stages
 from hypeagent.config_load import ConfigError
 from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
+from hypeagent.store import Store
 from hypeagent.trace import TraceWriter
 
 
@@ -29,6 +30,34 @@ def _render_mode(argv: Sequence[str]) -> int:
     jsonl_path = Path(argv[1])
     md_path = render_trace.render(jsonl_path)
     print(f"rendered {md_path}")
+    return 0
+
+
+def _delete_key_mode(argv: Sequence[str]) -> int:
+    """``python -m hypeagent --delete-key <canonical_key>`` — targeted
+    deletion (ARCHITECTURE_PLAN.md §2.6): the normalized record, raw
+    references, and every archived run pack that included this key, via the
+    run-pack -> canonical-key index."""
+    if len(argv) < 2:
+        print("usage: python -m hypeagent --delete-key <canonical_key>", file=sys.stderr)
+        return 2
+    canonical_key = argv[1]
+    repo_root = Path.cwd()
+    logs_dir = repo_root / "logs"
+    secrets_dir = repo_root / "secrets"
+    store = Store.open(logs_dir, secrets_dir)
+    try:
+        report = store.delete_by_canonical_key(canonical_key)
+    finally:
+        store.close()
+    print(
+        f"deleted canonical key {canonical_key}: "
+        f"normalized_record={report.normalized_record_deleted} "
+        f"provenance={report.provenance_deleted} "
+        f"packs_rewritten={len(report.packs_rewritten)}"
+    )
+    for path in report.packs_rewritten:
+        print(f"  rewrote pack file: {path}")
     return 0
 
 
@@ -73,6 +102,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args and args[0] == "--render":
         return _render_mode(args)
 
+    if args and args[0] == "--delete-key":
+        return _delete_key_mode(args)
+
     repo_root = Path.cwd()
     config_dir = repo_root / "config"
     logs_dir = repo_root / "logs"
@@ -99,16 +131,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     started_at = identity.started_at
     exit_class = ExitClass.SUCCESS
     crashed = False
+    theme_name = stages.DEFAULT_THEME_NAME
+    ctx: stages.RunContext | None = None
     tw = TraceWriter(trace_path, identity.run_id)
     try:
         tw.run_start(
             mode="interactive",
-            theme=None,
+            theme=theme_name,
             config_fingerprint=None,
             engine_version=ENGINE_VERSION,
             caps_in_force={},
         )
-        ctx = stages.RunContext(run_id=identity.run_id, config_dir=config_dir, logs_dir=logs_dir)
+        ctx = stages.RunContext(
+            run_id=identity.run_id, config_dir=config_dir, logs_dir=logs_dir, theme_name=theme_name
+        )
         try:
             exit_class_value = stages.run_pipeline(ctx, tw)
             exit_class = ExitClass(exit_class_value)
@@ -133,6 +169,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 },
             )
     finally:
+        if ctx is not None and ctx.store is not None:
+            ctx.store.close()
         tw.close()
         lock.release()
 

@@ -121,3 +121,130 @@ def load_theme_config(config_dir: Path) -> ThemeConfig:
     """
     hard_excludes = load_hard_excludes(config_dir)
     return ThemeConfig(hard_excludes=hard_excludes, fingerprint=_fingerprint(hard_excludes))
+
+
+# ---------------------------------------------------------------------------
+# Theme research block (§10.2) — what to watch and how to collect.
+#
+# A separate loader from ``load_theme_config`` above (which stays exactly as
+# milestone 1 left it): the research block is a *per-theme* artifact under
+# ``config/themes/<name>.yaml``, consumed by the collection and ranking
+# stages, whereas ``load_theme_config`` covers the cross-theme baseline
+# (hard excludes) that predates any theme existing at all.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SourceConfig:
+    """One source's row of the resolved portfolio (§2.3), as configured for
+    one theme."""
+
+    enabled: bool = True
+    family: str | None = None
+    family_en: str | None = None
+    family_cs: str | None = None
+    budget_max_calls: int = 10
+    circuit_breaker_threshold: int = 3
+    limit: int = 20
+    queries: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RankingKnobs:
+    """The ranking-config block (§2.7, §10.2), versioned and dated."""
+
+    version: int
+    brand_fit_floor: float
+    top_n_per_language: int
+    half_life_hours: dict[str, float]
+    baseline_lookback_days: int
+    absolute_band_fallback: dict[str, dict[str, float]]
+    dedupe_lookback_days: int
+    rejection_suppression_days: int
+    corroboration_growth_override_families: int
+    new_angle_min_new_signals: int
+    corroboration_bonus: float
+    evidence_floor_min_candidates: dict[str, int]
+    evidence_floor_min_families: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ThemeResearchConfig:
+    """The Phase-1 research block for one theme: watch topics/ICP terms per
+    language, the source roster, and the ranking-config block."""
+
+    theme_name: str
+    languages: list[str]
+    watch_topics: dict[str, list[str]]
+    icp_terms: dict[str, list[str]]
+    sources: dict[str, SourceConfig]
+    ranking: RankingKnobs
+
+
+def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResearchConfig:
+    """Load ``config/themes/<theme_name>.yaml``, fail-closed.
+
+    Missing or unreadable -> :class:`ConfigError` naming the file — a run
+    cannot collect or rank without knowing what it is watching for.
+    """
+    path = Path(config_dir) / "themes" / f"{theme_name}.yaml"
+    data = load_yaml_config(path, name=f"themes/{theme_name}.yaml")
+
+    theme_block = data.get("theme") or {}
+    languages = list(theme_block.get("languages") or [])
+    if not languages:
+        raise ConfigError(f"malformed config item: themes/{theme_name}.yaml: 'theme.languages' must be non-empty")
+
+    research_block = data.get("research") or {}
+    watch_topics = {k: list(v or []) for k, v in (research_block.get("watch_topics") or {}).items()}
+    icp_terms = {k: list(v or []) for k, v in (research_block.get("icp_terms") or {}).items()}
+
+    sources_block = research_block.get("sources") or {}
+    sources: dict[str, SourceConfig] = {}
+    for name, cfg in sources_block.items():
+        cfg = cfg or {}
+        sources[name] = SourceConfig(
+            enabled=bool(cfg.get("enabled", True)),
+            family=cfg.get("family"),
+            family_en=cfg.get("family_en"),
+            family_cs=cfg.get("family_cs"),
+            budget_max_calls=int(cfg.get("budget_max_calls", 10)),
+            circuit_breaker_threshold=int(cfg.get("circuit_breaker_threshold", 3)),
+            limit=int(cfg.get("limit", 20)),
+            queries={k: list(v or []) for k, v in (cfg.get("queries") or {}).items()},
+        )
+
+    ranking_block = data.get("ranking") or {}
+    if not ranking_block:
+        raise ConfigError(f"malformed config item: themes/{theme_name}.yaml: 'ranking' block is required")
+    ranking = RankingKnobs(
+        version=int(ranking_block.get("ranking_config_version", 1)),
+        brand_fit_floor=float(ranking_block.get("brand_fit_floor", 0.35)),
+        top_n_per_language=int(ranking_block.get("top_n_per_language", 3)),
+        half_life_hours={k: float(v) for k, v in (ranking_block.get("freshness_half_life_hours") or {}).items()},
+        baseline_lookback_days=int(ranking_block.get("baseline_lookback_days", 90)),
+        absolute_band_fallback={
+            k: {bk: float(bv) for bk, bv in (v or {}).items()}
+            for k, v in (ranking_block.get("absolute_band_fallback") or {}).items()
+        },
+        dedupe_lookback_days=int(ranking_block.get("dedupe_lookback_days", 30)),
+        rejection_suppression_days=int(ranking_block.get("rejection_suppression_days", 14)),
+        corroboration_growth_override_families=int(ranking_block.get("corroboration_growth_override_families", 2)),
+        new_angle_min_new_signals=int(ranking_block.get("new_angle_min_new_signals", 3)),
+        corroboration_bonus=float(ranking_block.get("corroboration_bonus", 0.15)),
+        evidence_floor_min_candidates={
+            k: int(v.get("min_candidates", 1)) for k, v in (ranking_block.get("evidence_floor") or {}).items()
+        },
+        evidence_floor_min_families={
+            k: int(v.get("min_families", 1)) for k, v in (ranking_block.get("evidence_floor") or {}).items()
+        },
+    )
+
+    return ThemeResearchConfig(
+        theme_name=theme_name,
+        languages=languages,
+        watch_topics=watch_topics,
+        icp_terms=icp_terms,
+        sources=sources,
+        ranking=ranking,
+    )

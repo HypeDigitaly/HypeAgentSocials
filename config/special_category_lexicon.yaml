@@ -1,0 +1,119 @@
+# =============================================================================
+# SPECIAL-CATEGORY LEXICON (GDPR Article 9) — post-collection lexical check
+# =============================================================================
+# Governing plan: docs/architecture/ARCHITECTURE_PLAN.md
+#   - §2.6, design consequence "A special-category exclusion, applied twice":
+#       limb (b): "a deterministic lexical check over each stored excerpt
+#       AFTER collection" — "Both fail to DO NOT STORE / DELETE, never to
+#       'flag and continue'."
+#   - §2.7 veto list: special-category content is re-checked at the ranking
+#     fit gate as a defence-in-depth measure, even though limb (b) should
+#     already have kept it out of the store entirely.
+#
+# HOW THIS FILE IS CONSUMED
+#   Applied by hypeagent.store.Store.store_signal() to every collected
+#   item's title+excerpt, AFTER collection but BEFORE the normalized record
+#   is written. A match on any term below means the item is NEVER STORED —
+#   this is limb (b) of §2.6's two-part exclusion, engine-enforced, this
+#   file supplies only the deterministic keyword lists.
+#
+#   This is a SEED list, not a claim of linguistic completeness — Phase 1's
+#   acceptance bar is "a deterministic lexical check exists and fires",
+#   not "this list is exhaustive". EN and CS terms are listed per category,
+#   lower-case, matched as case-insensitive substrings.
+#
+# FAIL-CLOSED SEMANTICS (mirrors hard_excludes.yaml / the deny-list)
+#   - File present, category lists empty -> RESOLVED-EMPTY: a deliberate,
+#     safe statement of "no terms for this category yet" for that category.
+#   - File missing or unreadable -> the lexical check cannot be enforced;
+#     collection must not proceed for any source that could carry
+#     special-category data (same logic as the source deny-list).
+#   - A match is always DO NOT STORE, never flag-and-continue.
+# =============================================================================
+
+special_category_lexicon:
+
+  # Health condition / health data (GDPR Art. 9(1)).
+  health_condition:
+    - depression
+    - anxiety disorder
+    - hiv positive
+    - cancer diagnosis
+    - chronic illness
+    - mental illness
+    - deprese
+    - úzkostná porucha
+    - rakovina (diagnóza)
+    - chronické onemocnění
+    - duševní nemoc
+
+  # Political affiliation / opinion.
+  political_affiliation:
+    - communist party
+    - socialist party
+    - conservative party member
+    - far-right movement
+    - far-left movement
+    - komunistická strana
+    - sociální demokracie (členství)
+    - krajně pravicové hnutí
+    - krajně levicové hnutí
+
+  # Religious or philosophical beliefs.
+  religious_or_philosophical_beliefs:
+    - practicing catholic
+    - practicing muslim
+    - devout christian
+    - devout jew
+    - atheist community
+    - praktikující katolík
+    - praktikující muslim
+    - ateistická komunita
+
+  # Trade union membership.
+  trade_union_membership:
+    - union member
+    - trade union membership
+    - odborový svaz (členství)
+    - odbory (členství)
+
+  # Racial or ethnic origin.
+  racial_or_ethnic_origin:
+    - ethnic minority
+    - roma community
+    - etnická menšina
+    - romská komunita
+
+  # Sexual orientation.
+  sexual_orientation:
+    - gay community
+    - lesbian community
+    - bisexual community
+    - lgbtq community
+    - komunita gayů
+    - lesbická komunita
+    - lgbt komunita
+
+  # Sex life.
+  sex_life:
+    - sex life
+    - sexuální život
+
+  # Biometric data for identification purposes.
+  biometric_data_for_identification:
+    - fingerprint scan
+    - facial recognition scan
+    - retina scan
+    - otisk prstu (sken)
+    - skenování obličeje
+
+  # Genetic data.
+  genetic_data:
+    - genetic testing result
+    - dna test result
+    - genetický test
+    - výsledek dna testu
+
+# Disposition, restated because it is the point of the control (§2.6): a
+# match here means the item is deleted / never stored. Never "flag and
+# continue" — flagging a record that should not exist is not a control.

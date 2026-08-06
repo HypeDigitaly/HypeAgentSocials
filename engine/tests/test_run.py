@@ -12,6 +12,17 @@ from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
 
 
 def _write_minimal_config(repo_root):
+    """The Phase-1 fail-closed config surface, minimal but complete.
+
+    Milestone 2 extends ``theme_load`` to also require the special-category
+    deny-list, the special-category lexicon, and a theme research block
+    (config_load.load_theme_research_config) — all fail-closed, same as
+    hard_excludes.yaml. The theme here declares zero enabled sources, so a
+    run through this minimal fixture makes zero network calls and produces
+    zero candidates: a legitimate, deterministic "success" outcome, not a
+    stub. Dedicated fixture-driven collector/ranking tests live in
+    test_phase1_pipeline.py.
+    """
     config_dir = repo_root / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "hard_excludes.yaml").write_text(
@@ -20,6 +31,36 @@ def _write_minimal_config(repo_root):
         "  framings: []\n"
         "  claim_types: []\n"
         "  do_not_mention_entities: []\n",
+        encoding="utf-8",
+    )
+    (config_dir / "special_category_source_deny_list.yaml").write_text(
+        "special_category_deny_list:\n"
+        "  denied_defining_characteristics: []\n"
+        "  denied_sources: []\n"
+        "  denied_communities: []\n",
+        encoding="utf-8",
+    )
+    (config_dir / "special_category_lexicon.yaml").write_text(
+        "special_category_lexicon:\n"
+        "  health_condition: []\n",
+        encoding="utf-8",
+    )
+    themes_dir = config_dir / "themes"
+    themes_dir.mkdir(parents=True, exist_ok=True)
+    (themes_dir / "hypedigitaly.yaml").write_text(
+        "theme:\n"
+        "  name: hypedigitaly\n"
+        "  languages: [en, cs]\n"
+        "research:\n"
+        "  watch_topics: {en: [], cs: []}\n"
+        "  icp_terms: {en: [], cs: []}\n"
+        "  sources: {}\n"
+        "ranking:\n"
+        "  ranking_config_version: 1\n"
+        "  brand_fit_floor: 0.35\n"
+        "  top_n_per_language: 3\n"
+        "  freshness_half_life_hours: {spike: 6, rising: 24, launch-hype: 72, evergreen-pain: 720}\n"
+        "  evidence_floor: {en: {min_candidates: 1, min_families: 1}, cs: {min_candidates: 1, min_families: 1}}\n",
         encoding="utf-8",
     )
 
