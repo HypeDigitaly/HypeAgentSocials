@@ -1,0 +1,111 @@
+# Brand-truth seed — config-side fact classes for M3 (goal-scoped Phase 2)
+# ---------------------------------------------------------------------------
+# Written 2026-08-07 as the M3 build input (GOAL_ROADMAP.md). Sources: Notion
+# Second Brain (docs/research/NOTION_KB_INVENTORY.md, live-read 2026-08-07;
+# corpus snapshot 2026-08-05) + company registry facts already on record.
+#
+# Semantics (ARCHITECTURE_PLAN.md §6.3–6.4):
+# - This file is the CONFIG side of brand truth. Notion stays primary where
+#   the fact-location map says so (config/notion_fact_locations.yaml).
+# - F-G price values and F-H claims are NOT here and never will be: claims
+#   live in Notion "Čísla a sliby" (referenced by id, fetched/snapshotted at
+#   run time), and the standing pricing POLICY below makes price values
+#   unnecessary for generated copy.
+# - Empty list = RESOLVED-EMPTY (a decision), missing key = UNRESOLVED
+#   (fail closed) — same loader semantics as every other config file.
+# - Every fact carries source + verified date so the digest's fact-usage
+#   trace can cite it.
+
+meta:
+  fact_config_version: 1
+  authored: "2026-08-07"
+  authored_from: "docs/research/NOTION_KB_INVENTORY.md + Notion hub pages (last_verified 2026-08-05)"
+
+# --- F-A identity ------------------------------------------------------------
+identity:
+  legal_name: "HypeDigitaly s.r.o."
+  ico: "17665655"
+  dic: "CZ17665655"
+  seat: "Velká Hradební 2800/54, 400 01 Ústí nad Labem, Czech Republic"
+  contact_email: "info@hypedigitaly.ai"
+  contact_phone: "+420 774 996 248"
+  website: "https://hypedigitaly.ai"
+  one_liner_en: "HypeDigitaly is a Czech AI agency building chatbots, AI automation, and lead generation for businesses and the public sector."
+  one_liner_cs: "HypeDigitaly je česká AI agentura — chatboti, AI automatizace a lead generation pro firmy i veřejnou správu."
+  source: "Notion 'O firmě' + 'Prvních 15 minut' (hd.hub.onboarding), verified 2026-08-05"
+
+# --- F-C capabilities — positive AND negative halves both load-bearing --------
+capabilities:
+  positive:
+    - id: cap-chatbots
+      en: "AI chatbots and assistants for businesses and public administration, running on the HypeAgent platform (hypeagent.ai)"
+      note: "New bots run on HypeAgent, NOT legacy RAGus — corpus rule, do not name RAGus in new copy"
+      source: "hd.corpus.web Chatbot page + corpus rules, 2026-08-05"
+    - id: cap-automation
+      en: "AI process automation and profit systems (workflow automation, integrations)"
+      source: "hd.corpus.web Služby part 1, 2026-08-05"
+    - id: cap-hypelead
+      en: "HypeLead — outbound lead-generation platform (app at hypelead.ai), DIY and done-for-you plans"
+      source: "hd.corpus.web HypeLead + DFY flyer (current, 🟢), 2026-08-05"
+    - id: cap-web
+      en: "AI-ready websites and AI audits for SMEs"
+      source: "hd.corpus.web Služby, 2026-08-05"
+  negative:  # things we must never imply we do/are
+    - "No medical, legal, or financial-advice products — never imply regulated-outcome expertise"
+    - "No product imagery exists or may be generated (Policy A permanent, W8-1a) — brand visuals are logos + existing published assets only"
+    - "We are a software/services company — no physical products"
+    - "Do not present RAGus as current — legacy only"
+    - "No client names in generated content (Projects DB is internal; 'Nuvaro' etc. confidential)"
+
+# --- F-D ICP — may NOT be empty (§6.3) ----------------------------------------
+icp:
+  - id: icp-sme
+    en: "Czech and EU SMEs wanting AI chatbots, automation, or more outbound leads without building an AI team"
+    source: "web services pages, 2026-08-05"
+  - id: icp-public
+    en: "Czech public-sector organizations (municipalities, regions) deploying citizen-facing AI chatbots"
+    source: "corpus Chatbot page public-sector pricing + blog case study (5 regions), 2026-08-05"
+  - id: icp-agencies
+    en: "Agencies and consultancies reselling or white-labeling AI delivery"
+    source: "HypeLead DFY positioning, 2026-08-05"
+
+# --- F-E CTA set ---------------------------------------------------------------
+cta_set:
+  - id: cta-web
+    class: "content"
+    en: "Learn more at hypedigitaly.ai"
+  - id: cta-hypelead
+    class: "product-adjacent"
+    en: "See how HypeLead works at hypedigitaly.ai/hypelead"
+  - id: cta-contact
+    class: "direct"
+    en: "Talk to us: info@hypedigitaly.ai"
+  - id: cta-blog
+    class: "content"
+    en: "Read the case study on the HypeDigitaly blog"
+    note: "Only 2 published posts exist — verify the linked post actually covers the referenced claim"
+
+# --- F-F pricing policy (POLICY, not values — values are F-G, site-verified) ---
+pricing_policy:
+  policy: "prices-never-stated"
+  rationale: >
+    Safe default per §6.3. Prices may be quoted only from Notion 'Ceny a nabídky'
+    and only 🟢 items (hub rule), and the historical-pricing hazard (🟡 pages with
+    obsolete tiers) makes any generated price statement a claim-gate liability.
+    Generated copy therefore states no prices, ever; CTAs route to the live
+    pricing pages instead. Change requires an operator decision row.
+
+# --- F-J pointer (hard excludes live in their own file; union wins) -------------
+hard_excludes_ref: "config/hard_excludes.yaml"
+
+# --- Notes for the spin stage ----------------------------------------------------
+spin_notes:
+  offer_adjacency: >
+    Default mapped offer for AI-trend topics is capability-level (chatbots /
+    automation / HypeLead as adjacent), never a hard pitch; mapping distance
+    rules in §6.9 govern. The claim ledger (Čísla a sliby, 10 approved rows)
+    is the ONLY source of citable numbers.
+  voice_reference: >
+    Voice exemplars come from the calibration corpus; the model picks per
+    asset at run time (W8-6). EN marketing voice exists only as translations
+    of Czech web copy — keep EN copy plain, concrete, no hype inflation.
