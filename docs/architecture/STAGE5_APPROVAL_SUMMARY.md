@@ -38,7 +38,7 @@
 ## 4. What needs your action (none blocks approving the direction)
 
 **Before/at implementation start (Phase 0 hard items):**
-1. **Legal counsel items** — OD-24 (Art. 50(4) editorial-review carve-out scope), OD-25 (Czech statutes primary-text check), **OD-26 (EDPB scraping-guideline verification — Phase-0 blocker: the lawful-basis analysis rests on it; processor/data-transfer mapping has no evidence yet)**.
+1. **Legal counsel items** — OD-L1–OD-L5 (primary-text confirmation of Reg. 1924/2006 Art. 10, Dir. 2001/83/EC Title VIII, MDR Art. 7, Reg. 1169/2011 Art. 7(3), UCPD Annex I cure-claim item), OD-L8 (licensed-claims pathway design, if ever needed), OD-24 (Art. 50(4) editorial-review carve-out scope), OD-25 (Czech statutes primary-text check), **OD-26 (EDPB scraping-guideline verification — Phase-0 blocker: the lawful-basis analysis rests on it; processor/data-transfer mapping has no evidence yet)**.
 2. Manual browser pulls: Kie.ai ToS + Reddit Data API developer terms (replaces the Reddit Pro pull — W6-1; both blocked automated retrieval).
 3. Start: Meta Ad Library ID verification · Reddit Data API commercial-use application (OD-29) · Virlo 1-week trial · Postiz trial (draft capability check).
 4. Set final per-run caps (OD-8) — the plan's acceptance gates now measure spend-vs-forecast, not just "reserve survived" (the trial envelope proved ~2× conservative).
@@ -49,4 +49,10 @@
 
 ## 5. Recommended next step
 
-Approval is conditional on Amendment A landing first — this amendment closes the claim-ledger laundering defect (P-10), the unchecked-depiction defect (P-11), and the P-1 hard-failure fix, and applies to theme #1 immediately, not only to later verticals. Once Amendment A is in place, approve the architecture direction → run an **implementation xmasterplan** that turns `ARCHITECTURE_PLAN.md` §17 into a build plan, starting with Phase 0 (credentials, legal verifications, trials, golden sets, calibration corpora) — keeping test-mode/dry-run defaults, the human gate, and fail-closed cron exactly as designed. Implementation does not start until you say so (D-01).
+**Amendment A is now applied.** It closes three defects: the claim-ledger laundering defect (P-10) via the Prohibited-Outcome Gate; the unchecked-depiction defect (P-11) via check class 12 and reference-grounding verification; and the hard-failure exclusion defect (P-1) via legitimate emptiability of F-B/F-C/F-E with external-verifier substitution floor. All three apply to theme #1 immediately, not only to later verticals.
+
+**One intended capability removal.** Policy A (no depiction) as the engine floor removes an existing capability from theme #1: ungrounded generated depiction of the product's own dashboard or interface. This is a permitted change (P-11 closes it), and theme #1 may restore this capability by opt-in to Policy B, subject to the named preconditions at §10.4.
+
+**One new per-call cost line.** The Prohibited-Outcome Gate's semantic pass (N-14) adds a new per-call text-wallet line item with a per-call token ceiling listed at §5.4a, read from the registry at run time. The text-wallet estimate in §1 is correspondingly a floor rather than a ceiling.
+
+Next step: approve the architecture direction → run an **implementation masterplan** that turns `ARCHITECTURE_PLAN.md` §17 into a build plan, starting with Phase 0 (credentials, legal verifications, trials, golden sets, calibration corpora) — keeping test-mode/dry-run defaults, the human gate, and fail-closed cron exactly as designed. Implementation does not start until you say so (D-01).
