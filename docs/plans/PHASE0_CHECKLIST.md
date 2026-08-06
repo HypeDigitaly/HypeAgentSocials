@@ -14,13 +14,10 @@
 - [ ] **Reddit**: file the Data API commercial-use application (OD-29). It may take weeks or be refused — the system has a fallback either way, so don't wait on the answer.
 - [ ] **Product Hunt**: send the commercial-use permission email (OD-19).
 
-### Lawyer items (book the time now)
+### ~~Lawyer items~~ (SKIPPED 2026-08-07 by your decision — W8-4)
 
-- [ ] **OD-26 — the blocker**: have counsel verify the EDPB web-scraping guideline reference against the EDPB's own register. The whole lawful-basis analysis rests on this. Nothing legal can be finalised before it.
-- [ ] **OD-24**: scope of the AI Act "editorial review" carve-out.
-- [ ] **OD-25**: check the two Czech statute citations against primary text.
-- [ ] **OD-L1 to OD-L5** *(new, from Amendment A)*: confirm five EU-law citations behind the Prohibited-Outcome Gate (health-claim rules, medicines law, medical devices, food information, unfair-practices blacklist). None block Phase 0 — they gate Phase 6 — but they can ride along in the same counsel engagement as OD-24/25/26.
-- [ ] **Music licensing**: pick a vendor (library subscription or paid AI-music plan). Must be resolved before anything publishes (Phase 6), but choosing early avoids a scramble.
+- [x] ~~All counsel items (OD-24/25/26, OD-L1–L5)~~ — **You decided to skip lawyers entirely for now.** The legal drafts stay in `legal/` unverified; the build proceeds. The one place this resurfaces by design: **before Phase 6 (real publishing)**, the plan will ask again — you can waive it again then if you want.
+- [ ] **Music licensing**: pick a vendor (library subscription or paid AI-music plan). Not a lawyer item — just a purchase. Needed before anything publishes (Phase 6).
 
 ### Trials (each takes about a week)
 
