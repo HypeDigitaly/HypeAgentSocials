@@ -43,7 +43,15 @@ The goal's completion criterion is the **test run**, and the test run defines th
       Phase-1 heuristic behind a FitJudge protocol, EN vs CS composites), dedupe index w/
       full §2.8a resurgence rule, run pack + §12.1 digest, offline tests + real smoke run.
       → review, test, commit, **/compact**.
-- [ ] **M3 — Virlo collector + brand truth + spin + copy (EN)** (goal-scoped Phase 2).
+- [x] **M3 — Virlo collector + brand truth + spin + copy (EN)** (commit 10654e8,
+      2026-08-07). 121/121 tests; smoke run `2026-08-07_7d0a` live: both Virlo GETs
+      succeeded (`/v1/trends/digest` global + `/v1/agents/{id}` monitor read — the
+      monitor's `analysis_data.themes` is the on-topic gold; `finalized:false` degrades
+      that endpoint only), `short_form_trends` family ranked, spin mapped HypeLead as
+      adjacent on the lead-gen topic and forced value-only on far topics, 6 copy briefs
+      written, all assets `held — awaiting operator copy` (expected terminal state),
+      key nowhere in artifacts (grep-verified). Copy resume = same run_id re-invoked
+      (engine has no --resume; documented in copy_gen.py).
       (a) Virlo as a real collector in the engine via its REST API (token in API_KEYS.txt;
       reads only: trends digest / monitor data / existing keyword-search results — NEVER
       create paid jobs from the engine without the cost gate; respect the polling policy).
