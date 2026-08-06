@@ -70,10 +70,20 @@ class FetchResponse:
 
 
 class Fetcher(Protocol):
-    """Injectable transport. Production: ``UrllibFetcher``. Tests: a fixture double."""
+    """Injectable transport. Production: ``UrllibFetcher``. Tests: a fixture double.
+
+    ``body`` is optional and only meaningful for write-ish methods (used by
+    the M3 ``openai-compatible-http`` copy provider's POST); every GET-only
+    collector simply never passes it.
+    """
 
     def fetch(
-        self, url: str, *, headers: dict[str, str] | None = None, method: str = "GET"
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        method: str = "GET",
+        body: bytes | None = None,
     ) -> FetchResponse: ...
 
 
@@ -88,15 +98,20 @@ class UrllibFetcher:
         self.timeout = timeout
 
     def fetch(
-        self, url: str, *, headers: dict[str, str] | None = None, method: str = "GET"
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        method: str = "GET",
+        body: bytes | None = None,
     ) -> FetchResponse:
         req_headers = {"User-Agent": USER_AGENT}
         req_headers.update(headers or {})
-        request = urllib.request.Request(url, headers=req_headers, method=method)
+        request = urllib.request.Request(url, data=body, headers=req_headers, method=method)
         start = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as resp:
-                body = resp.read()
+                response_body = resp.read()
                 status = resp.status
                 resp_headers = dict(resp.headers.items())
         except urllib.error.HTTPError as exc:
@@ -107,7 +122,7 @@ class UrllibFetcher:
         except urllib.error.URLError as exc:
             raise FetchError(f"network error fetching {url}: {exc}") from exc
         latency_ms = int((time.monotonic() - start) * 1000)
-        return FetchResponse(status=status, headers=resp_headers, body=body, latency_ms=latency_ms)
+        return FetchResponse(status=status, headers=resp_headers, body=response_body, latency_ms=latency_ms)
 
 
 @dataclass
@@ -121,11 +136,18 @@ class FixtureFetcher:
 
     responses: dict[str, FetchResponse | FetchError | Exception]
     calls: list[str] = field(default_factory=list)
+    request_bodies: list[bytes | None] = field(default_factory=list)
 
     def fetch(
-        self, url: str, *, headers: dict[str, str] | None = None, method: str = "GET"
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        method: str = "GET",
+        body: bytes | None = None,
     ) -> FetchResponse:
         self.calls.append(url)
+        self.request_bodies.append(body)
         for key, outcome in self.responses.items():
             if key == url or key in url:
                 if isinstance(outcome, Exception):
@@ -325,10 +347,18 @@ def guarded_fetch(
     circuit_breaker: CircuitBreaker,
     budget: Budget,
     method: str = "GET",
+    extra_headers: dict[str, str] | None = None,
 ) -> GuardedFetchOutcome:
     """One policy-guarded HTTP fetch. Returns without touching the network
     at all for a denied source, an idempotent same-day hit, an exhausted
-    budget, or an open circuit breaker."""
+    budget, or an open circuit breaker.
+
+    ``extra_headers`` carries per-source transport headers that must never
+    reach the trace (e.g. an ``Authorization: Bearer <key>`` header) — they
+    are merged into the outgoing request only, never into the ``api_call``
+    trace event's ``request`` dict, which is built and redacted separately
+    below and never includes ``headers`` at all.
+    """
     if deny_list.is_denied(source_id_for_deny_check):
         trace.decision(
             stage,
@@ -352,7 +382,7 @@ def guarded_fetch(
     if not budget.has_budget():
         return GuardedFetchOutcome(fetched=False, skipped_reason="budget-exhausted")
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = dict(extra_headers or {})
     prior = store.previous_capture(theme=theme, source=source, query_sig=query_sig, before_run_id=run_id)
     if prior is not None:
         if prior.etag:

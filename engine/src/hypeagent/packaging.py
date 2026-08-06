@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -103,6 +104,10 @@ def render_digest(
     degraded_sources: list[DegradedSourceNote],
     languages: list[str],
     zero_candidates_message: bool,
+    brand_truth_panel: Any | None = None,
+    spin_results: dict[str, Any] | None = None,
+    copy_asset_statuses: list[Any] | None = None,
+    cs_holds: list[dict[str, str]] | None = None,
 ) -> str:
     """Render ``digest.md`` (§12.1, Phase-1-relevant lines only)."""
     lines: list[str] = []
@@ -185,6 +190,47 @@ def render_digest(
     )
     lines.append("")
 
+    if brand_truth_panel is not None:
+        lines.append("## Brand-truth panel")
+        lines.append("")
+        lines.append(
+            f"- **snapshot**: `{brand_truth_panel.snapshot.snapshot_id}` "
+            f"(taken {brand_truth_panel.snapshot.taken_at}, {brand_truth_panel.snapshot_age_days}d old, "
+            f"max_age_days={brand_truth_panel.snapshot.max_age_days})"
+        )
+        lines.append(f"- **band**: {brand_truth_panel.band} — copy allowed: {brand_truth_panel.copy_allowed}")
+        if brand_truth_panel.degrade_reason:
+            lines.append(f"- **degrade cause**: {brand_truth_panel.degrade_reason}")
+        lines.append(f"- **fact classes loaded**: {', '.join(brand_truth_panel.fact_classes_loaded)}")
+        lines.append("")
+
+    if spin_results:
+        lines.append("## Spin rationale (per EN asset)")
+        lines.append("")
+        for sr in spin_results.values():
+            lines.append(f"- {sr.rationale_line}")
+        lines.append("")
+
+    if cs_holds:
+        lines.append("## Czech candidates — held (not in this goal's scope)")
+        lines.append("")
+        for hold in cs_holds:
+            lines.append(f"- **{hold['topic']}** ({hold['language']}): {hold['outcome']}")
+        lines.append("")
+
+    if copy_asset_statuses is not None:
+        lines.append("## Copy status (per asset)")
+        lines.append("")
+        if copy_asset_statuses:
+            lines.append("| asset | destination | status | attempt | failing spans |")
+            lines.append("|---|---|---|---|---|")
+            for s in copy_asset_statuses:
+                spans = "; ".join(s.failing_spans) if s.failing_spans else "—"
+                lines.append(f"| {s.asset_id} | {s.destination} | {s.status} | {s.attempt} | {spans} |")
+        else:
+            lines.append("_No copy assets this run (no EN candidates reached spin/copy, or copy was refused)._")
+        lines.append("")
+
     lines.append("## Footer")
     lines.append("")
     lines.append(f"- full run trace: [{TRACE_RELATIVE_LINK}]({TRACE_RELATIVE_LINK})")
@@ -247,6 +293,10 @@ def write_digest(
     ranking_result: RankingResult,
     degraded_sources: list[DegradedSourceNote],
     languages: list[str],
+    brand_truth_panel: Any | None = None,
+    spin_results: dict[str, Any] | None = None,
+    copy_asset_statuses: list[Any] | None = None,
+    cs_holds: list[dict[str, str]] | None = None,
 ) -> Path:
     """The ``digest`` stage's work: render and write ``digest.md`` into the
     already-packaged pack directory."""
@@ -260,6 +310,10 @@ def write_digest(
         degraded_sources=degraded_sources,
         languages=languages,
         zero_candidates_message=ranking_result.zero_passing_candidates,
+        brand_truth_panel=brand_truth_panel,
+        spin_results=spin_results,
+        copy_asset_statuses=copy_asset_statuses,
+        cs_holds=cs_holds,
     )
     digest_path = pack_dir / "digest.md"
     digest_path.write_text(digest_text, encoding="utf-8")

@@ -1,0 +1,31 @@
+{
+  "data": {
+    "id": "9c96fddf-dc35-4be0-bbd9-12f4d22aea12",
+    "name": "AI Trends Tracker",
+    "is_recurring": true,
+    "active": true,
+    "finalized": true,
+    "analysis_data": {
+      "themes": [
+        {
+          "name": "AI Agents for Business Automation and Outbound Sales",
+          "tactics": ["show AI agents qualifying leads", "demonstrate automated outbound sequences"],
+          "confidence": 0.92,
+          "stable_key": "ai-agents-business-automation-outbound-sales",
+          "video_count": 33,
+          "why_it_works": "The idea of AI agents handling sales outreach autonomously resonates with small business owners."
+        },
+        {
+          "name": "Claude Code for Development and Automation",
+          "tactics": ["tutorials using Claude in an IDE"],
+          "confidence": 0.88,
+          "stable_key": "claude-code-for-development-and-automation",
+          "video_count": 24,
+          "why_it_works": "Developers want practical automation tutorials."
+        }
+      ],
+      "overview": {"avg_virality": 0, "total_videos": 240}
+    },
+    "latest_run": {"status": "completed", "total_videos_inserted": 189}
+  }
+}

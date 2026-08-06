@@ -4,6 +4,7 @@ offline against fixtures via an injected ``Fetcher``."""
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,9 +21,53 @@ def _fr(path: Path) -> FetchResponse:
     return FetchResponse(status=200, headers={}, body=path.read_bytes(), latency_ms=3)
 
 
+def _write_brand_truth_config(config_dir: Path) -> None:
+    """M3's brand-truth stage fails closed on a missing brand_facts.yaml or
+    claim-ledger snapshot — every fixture-driven pipeline test needs a
+    minimal, valid, always-fresh pair (see test_run.py's twin helper)."""
+    (config_dir / "brand_facts.yaml").write_text(
+        "identity:\n"
+        "  legal_name: Test Co\n"
+        "  source: test fixture\n"
+        "capabilities:\n"
+        "  positive:\n"
+        "    - id: cap-test\n"
+        "      en: AI chatbots and automation for businesses\n"
+        "      source: test fixture\n"
+        "  negative:\n"
+        "    - No physical products\n"
+        "icp:\n"
+        "  - id: icp-test\n"
+        "    en: Small businesses wanting AI automation\n"
+        "    source: test fixture\n"
+        "cta_set:\n"
+        "  - id: cta-test\n"
+        "    class: content\n"
+        "    en: Learn more\n"
+        "pricing_policy:\n"
+        "  policy: prices-never-stated\n"
+        "  rationale: test fixture\n"
+        "hard_excludes_ref: config/hard_excludes.yaml\n"
+        "spin_notes: {}\n",
+        encoding="utf-8",
+    )
+    snapshots_dir = config_dir / "snapshots"
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().astimezone().date().isoformat()
+    (snapshots_dir / f"claim_ledger_snapshot_{today}.yaml").write_text(
+        "meta:\n"
+        "  snapshot_id: test-snapshot\n"
+        f"  taken_at: \"{today}\"\n"
+        "  max_age_days: 30\n"
+        "claims: []\n",
+        encoding="utf-8",
+    )
+
+
 def _write_config(tmp_path: Path, *, denied_sources=None, lexicon_terms=None) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
+    _write_brand_truth_config(config_dir)
     (config_dir / "hard_excludes.yaml").write_text(
         "hard_excludes:\n  topics: []\n  framings: []\n  claim_types: []\n  do_not_mention_entities: []\n",
         encoding="utf-8",

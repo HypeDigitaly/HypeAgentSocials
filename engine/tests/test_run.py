@@ -3,12 +3,58 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 
 from hypeagent import main as main_module
 from hypeagent import run_identity, stages
 from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
+
+
+def _write_brand_truth_config(config_dir):
+    """M3's brand-truth stage (stages.stage_brand_truth) fails closed on a
+    missing ``brand_facts.yaml`` or claim-ledger snapshot — every fixture
+    that runs the full pipeline needs a minimal, valid pair. ``taken_at`` is
+    always "today" so the snapshot is never stale against the real clock
+    these end-to-end tests run under."""
+    (config_dir / "brand_facts.yaml").write_text(
+        "identity:\n"
+        "  legal_name: Test Co\n"
+        "  source: test fixture\n"
+        "capabilities:\n"
+        "  positive:\n"
+        "    - id: cap-test\n"
+        "      en: AI chatbots and automation for businesses\n"
+        "      source: test fixture\n"
+        "  negative:\n"
+        "    - No physical products\n"
+        "icp:\n"
+        "  - id: icp-test\n"
+        "    en: Small businesses wanting AI automation\n"
+        "    source: test fixture\n"
+        "cta_set:\n"
+        "  - id: cta-test\n"
+        "    class: content\n"
+        "    en: Learn more\n"
+        "pricing_policy:\n"
+        "  policy: prices-never-stated\n"
+        "  rationale: test fixture\n"
+        "hard_excludes_ref: config/hard_excludes.yaml\n"
+        "spin_notes: {}\n",
+        encoding="utf-8",
+    )
+    snapshots_dir = config_dir / "snapshots"
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().astimezone().date().isoformat()
+    (snapshots_dir / f"claim_ledger_snapshot_{today}.yaml").write_text(
+        "meta:\n"
+        "  snapshot_id: test-snapshot\n"
+        f"  taken_at: \"{today}\"\n"
+        "  max_age_days: 30\n"
+        "claims: []\n",
+        encoding="utf-8",
+    )
 
 
 def _write_minimal_config(repo_root):
@@ -63,6 +109,7 @@ def _write_minimal_config(repo_root):
         "  evidence_floor: {en: {min_candidates: 1, min_families: 1}, cs: {min_candidates: 1, min_families: 1}}\n",
         encoding="utf-8",
     )
+    _write_brand_truth_config(config_dir)
 
 
 def test_end_to_end_run_produces_all_artifacts(tmp_path, monkeypatch):

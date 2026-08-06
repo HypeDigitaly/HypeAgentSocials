@@ -147,6 +147,8 @@ class SourceConfig:
     circuit_breaker_threshold: int = 3
     limit: int = 20
     queries: dict[str, list[str]] = field(default_factory=dict)
+    key_path: str | None = None
+    monitor_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,8 @@ def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResear
             circuit_breaker_threshold=int(cfg.get("circuit_breaker_threshold", 3)),
             limit=int(cfg.get("limit", 20)),
             queries={k: list(v or []) for k, v in (cfg.get("queries") or {}).items()},
+            key_path=cfg.get("key_path"),
+            monitor_id=cfg.get("monitor_id"),
         )
 
     ranking_block = data.get("ranking") or {}
@@ -247,4 +251,85 @@ def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResear
         icp_terms=icp_terms,
         sources=sources,
         ranking=ranking,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M3 generation block (§6.9 spin, §14.1/§14.3 gates) — spin/copy/gate knobs,
+# goal-scoped to EN. A separate loader for the same reason the research
+# block is separate from the cross-theme baseline: this is per-theme
+# generation policy, consumed only by the spin/copy/claim-gate stages.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MappingDistanceBands:
+    """Term-overlap score thresholds for spin's near/adjacent/far mapping
+    distance (§6.9). A score at or above ``near_min`` is "near" (the plan's
+    "direct"); at or above ``adjacent_min`` is "adjacent"; below that, "far"
+    — which structurally forces the value-only variant (no offer, no
+    product CTA)."""
+
+    near_min: float = 0.35
+    adjacent_min: float = 0.12
+
+
+@dataclass(frozen=True)
+class OpenAICompatibleConfig:
+    """Generic OpenAI-chat-completions-shaped provider config. Disabled by
+    default — no key exists for this goal; wired for structure only, proven
+    by a fixture test of the request shape."""
+
+    enabled: bool = False
+    base_url: str = ""
+    model: str = ""
+    key_path: str = ""
+    max_tokens: int = 400
+
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    """The M3 spin/copy/gate knob surface for one theme."""
+
+    destinations: list[str]
+    copy_provider: str
+    repair_budget: int
+    mapping_distance: MappingDistanceBands
+    exemplar_pool: list[str]
+    openai_compatible: OpenAICompatibleConfig
+
+
+def load_theme_generation_config(config_dir: Path, theme_name: str) -> GenerationConfig:
+    """Load the ``generation:`` block of ``config/themes/<theme_name>.yaml``.
+
+    Entirely optional-with-safe-defaults (unlike the research block): a
+    theme with no ``generation:`` block gets the interactive-file provider,
+    the default mapping-distance bands, and both goal destinations — the
+    generation stages are additive to Phase 1 and must not become a new
+    fail-closed surface for themes that predate M3.
+    """
+    path = Path(config_dir) / "themes" / f"{theme_name}.yaml"
+    data = load_yaml_config(path, name=f"themes/{theme_name}.yaml")
+    block = data.get("generation") or {}
+
+    dist_block = block.get("mapping_distance_bands") or {}
+    mapping_distance = MappingDistanceBands(
+        near_min=float(dist_block.get("near_min", 0.35)),
+        adjacent_min=float(dist_block.get("adjacent_min", 0.12)),
+    )
+    oai_block = block.get("openai_compatible") or {}
+    openai_compatible = OpenAICompatibleConfig(
+        enabled=bool(oai_block.get("enabled", False)),
+        base_url=str(oai_block.get("base_url", "")),
+        model=str(oai_block.get("model", "")),
+        key_path=str(oai_block.get("key_path", "")),
+        max_tokens=int(oai_block.get("max_tokens", 400)),
+    )
+    return GenerationConfig(
+        destinations=list(block.get("destinations") or ["linkedin", "instagram_feed"]),
+        copy_provider=str(block.get("copy_provider", "interactive-file")),
+        repair_budget=int(block.get("repair_budget", 2)),
+        mapping_distance=mapping_distance,
+        exemplar_pool=list(block.get("exemplar_pool") or []),
+        openai_compatible=openai_compatible,
     )

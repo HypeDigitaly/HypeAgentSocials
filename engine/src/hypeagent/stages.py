@@ -16,13 +16,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from hypeagent import packaging
-from hypeagent.collectors import google_news, hackernews, huggingface, producthunt
+import yaml
+
+from hypeagent import brand_truth, copy_gen, packaging, spin as spin_module
+from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
+    GenerationConfig,
     ThemeConfig,
     ThemeResearchConfig,
     load_theme_config,
+    load_theme_generation_config,
     load_theme_research_config,
 )
 from hypeagent.exit_codes import ExitClass
@@ -30,21 +34,31 @@ from hypeagent.ranking import (
     Phase1DeterministicFitJudge,
     Phase1DeterministicNewAngleJudge,
     RankingConfig,
+    Scorecard,
     rank,
 )
 from hypeagent.store import SourceDenyList, SpecialCategoryLexicon, Store, load_source_deny_list, load_special_category_lexicon
 from hypeagent.trace import TraceWriter
 
-# Canonical Phase-1 stage order (§17.2).
+# Canonical stage order. M3 (GOAL_ROADMAP.md) inserts brand_truth, spin and
+# copy between ranking and packaging — the goal-scoped Phase-2 core: brand
+# truth resolves once per run, spin maps EN topics deterministically, and
+# copy generates + gates English social assets only (CS stops at ranking,
+# §17.2 Phase-1's four-collector/ranking/pack core stays intact underneath).
 CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "theme_load",
     "collection",
     "ranking",
+    "brand_truth",
+    "spin",
+    "copy",
     "packaging",
     "digest",
 )
 
 DEFAULT_THEME_NAME = "hypedigitaly"
+GENERATION_LANGUAGE = "en"  # goal-scoped: only EN candidates proceed past ranking into spin/copy
+COPY_MAX_ATTEMPTS = 2
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -62,6 +76,7 @@ class RunContext:
     secrets_dir: Path | None = None
     theme_config: ThemeConfig | None = None
     research: ThemeResearchConfig | None = None
+    generation: GenerationConfig | None = None
     deny_list: SourceDenyList | None = None
     lexicon: SpecialCategoryLexicon | None = None
     store: Store | None = None
@@ -94,6 +109,7 @@ def stage_theme_load(ctx: RunContext, trace: TraceWriter) -> StageResult:
     (§2.6), and to run the retention expiry job at run start."""
     ctx.theme_config = load_theme_config(ctx.config_dir)
     ctx.research = load_theme_research_config(ctx.config_dir, ctx.theme_name)
+    ctx.generation = load_theme_generation_config(ctx.config_dir, ctx.theme_name)
     ctx.deny_list = load_source_deny_list(ctx.config_dir / "special_category_source_deny_list.yaml")
     ctx.lexicon = load_special_category_lexicon(ctx.config_dir / "special_category_lexicon.yaml")
 
@@ -187,6 +203,21 @@ def stage_collection(ctx: RunContext, trace: TraceWriter) -> StageResult:
                 cctx,
                 family=ph_cfg.family or "launch_registries",
                 circuit_breaker_threshold=ph_cfg.circuit_breaker_threshold,
+            )
+        )
+
+    virlo_cfg = sources.get("virlo")
+    if virlo_cfg is not None and virlo_cfg.enabled:
+        secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
+        key_path = Path(virlo_cfg.key_path) if virlo_cfg.key_path else (secrets_dir / "virlo.key")
+        results.append(
+            virlo.collect(
+                cctx,
+                family=virlo_cfg.family or "short_form_trends",
+                key_path=key_path,
+                monitor_id=virlo_cfg.monitor_id or virlo.DEFAULT_MONITOR_ID,
+                budget_max_calls=virlo_cfg.budget_max_calls,
+                circuit_breaker_threshold=virlo_cfg.circuit_breaker_threshold,
             )
         )
 
@@ -316,6 +347,178 @@ def stage_ranking(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def stage_brand_truth(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """Load brand facts + the latest dated claim-ledger snapshot and pack
+    the per-run brand-truth panel (§6.3-§6.6, goal-scoped M3).
+
+    Fail-closed conditions (missing ``brand_facts.yaml``, an empty F-D ICP
+    list, no snapshot file at all) raise :class:`hypeagent.config_load.ConfigError`,
+    which ``run_pipeline`` lets propagate exactly like every other config
+    load in this engine — the caller maps it to ``policy-stop``. Snapshot
+    **staleness alone** is this milestone's one degrade trigger (§6.5,
+    simplified): the run continues research-only and the copy stage
+    refuses, with the cause named in the digest.
+    """
+    panel = brand_truth.resolve_brand_truth(ctx.config_dir)
+    ctx.extra["brand_truth_panel"] = panel
+
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+    pack_dir = run_dir / "pack"
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    panel_path = pack_dir / "brand_truth_panel.yaml"
+    panel_path.write_text(
+        yaml.safe_dump(panel.to_yaml_dict(), allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    data = panel_path.read_bytes()
+    trace.artifact_write(
+        "brand_truth", path=str(panel_path), kind="brand_truth_panel", bytes_=len(data), sha256=_sha256_hex(data)
+    )
+
+    if panel.band == "stale":
+        trace.degrade(
+            "brand_truth",
+            condition=panel.degrade_reason or "claim ledger snapshot stale",
+            caused="claim-ledger snapshot age exceeded max_age_days (§6.5 degrade posture, simplified: one trigger)",
+        )
+        return StageResult(
+            outcome="degraded", items_in=1, items_out=1,
+            extra={"snapshot_band": panel.band, "snapshot_id": panel.snapshot.snapshot_id},
+        )
+
+    return StageResult(
+        outcome="ok", items_in=1, items_out=1,
+        extra={"snapshot_band": panel.band, "snapshot_id": panel.snapshot.snapshot_id},
+    )
+
+
+def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """Deterministic spin mapping (§6.9) for EN top-ranked candidates only.
+
+    Non-EN top-ranked candidates (Czech, under full Phase-2 scope) stop
+    here with an honest hold note — Czech copy generation is designed-in
+    but not exercised for this goal (GOAL_ROADMAP.md: "English only for the
+    test... Czech machinery stays designed-in but is not exercised")."""
+    assert ctx.generation is not None
+    ranking_result = ctx.extra["ranking_result"]
+    panel = ctx.extra["brand_truth_panel"]
+
+    en_scorecards: list[Scorecard] = ranking_result.top_by_language.get(GENERATION_LANGUAGE, [])
+    spin_results: dict[str, spin_module.SpinResult] = {}
+    for sc in en_scorecards:
+        result = spin_module.spin_for_scorecard(
+            sc, panel.facts, mapping_distance_bands=ctx.generation.mapping_distance
+        )
+        spin_results[sc.cluster_key] = result
+        trace.decision(
+            "spin", decision=result.rationale_line,
+            rule="ARCHITECTURE_PLAN §6.9/§12.1: every asset records its one-line spin rationale",
+        )
+
+    cs_holds: list[dict[str, str]] = []
+    for language, scorecards in ranking_result.top_by_language.items():
+        if language == GENERATION_LANGUAGE:
+            continue
+        for sc in scorecards:
+            cs_holds.append(
+                {
+                    "cluster_key": sc.cluster_key, "topic": sc.representative_title, "language": language,
+                    "outcome": "hold — Czech copy not in goal scope",
+                }
+            )
+            trace.decision(
+                "spin",
+                decision=f"{language} candidate '{sc.representative_title}' — hold: Czech copy not in goal scope",
+                rule="GOAL_ROADMAP.md M3: English-only for this goal's finish line",
+            )
+
+    ctx.extra["spin_results"] = spin_results
+    ctx.extra["cs_holds"] = cs_holds
+    return StageResult(
+        outcome="ok",
+        items_in=len(en_scorecards) + len(cs_holds),
+        items_out=len(spin_results),
+        extra={"cs_hold_count": len(cs_holds)},
+    )
+
+
+def _build_copy_provider(ctx: RunContext, run_dir: Path) -> copy_gen.TextModel:
+    assert ctx.generation is not None
+    if ctx.generation.copy_provider == "openai-compatible-http" and ctx.generation.openai_compatible.enabled:
+        fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
+        return copy_gen.OpenAICompatibleProvider(ctx.generation.openai_compatible, fetcher)
+    return copy_gen.InteractiveFileProvider(run_dir)
+
+
+def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """Build a copy request per (EN topic x destination), run it through the
+    configured ``TextModel`` provider, and gate the result deterministically
+    (§14.0 repair budget, §14.3 claim gate, §14.6 disclosure floor).
+
+    Refuses entirely — no requests written, no provider called — if brand
+    truth degraded to research-only this run (stale snapshot); this is the
+    stage-ordering guarantee that makes "copy spend is zero on the degrade
+    path" true by construction rather than by assertion (§6.5)."""
+    assert ctx.generation is not None and ctx.theme_config is not None
+    panel = ctx.extra["brand_truth_panel"]
+    spin_results: dict[str, spin_module.SpinResult] = ctx.extra.get("spin_results", {})
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+
+    if not panel.copy_allowed:
+        trace.decision(
+            "copy",
+            decision="copy stage refuses — brand truth is research-only this run (stale claim snapshot)",
+            rule="ARCHITECTURE_PLAN §6.5 degrade posture, simplified to one trigger for this goal",
+        )
+        ctx.extra["copy_asset_statuses"] = []
+        return StageResult(outcome="degraded", items_in=len(spin_results), items_out=0, extra={"copy_refused": True})
+
+    if not spin_results:
+        ctx.extra["copy_asset_statuses"] = []
+        return StageResult(outcome="ok", items_in=0, items_out=0)
+
+    provider = _build_copy_provider(ctx, run_dir)
+    negative_capabilities = panel.facts.capabilities_negative
+    pricing_policy_line = f"{panel.facts.pricing_policy}: {panel.facts.pricing_rationale}".strip()
+    allowed_facts = [
+        {
+            "claim_key": c.claim_key, "text_cs": c.text_cs, "behavior": c.behavior,
+            "qualification": c.qualification, "category": c.category, "verified": c.verified,
+        }
+        for c in panel.snapshot.claims
+    ]
+    ranking_result = ctx.extra["ranking_result"]
+
+    statuses: list[copy_gen.AssetCopyStatus] = []
+    for cluster_key, sr in spin_results.items():
+        canonical_keys = ranking_result.candidate_canonical_keys.get(cluster_key, [])
+        for destination in ctx.generation.destinations:
+            asset_id = f"{cluster_key}_{destination}"
+            request = copy_gen.build_copy_request(
+                asset_id=asset_id, destination=destination, spin=sr,
+                excerpt_refs=canonical_keys, allowed_facts=allowed_facts,
+                negative_capabilities=negative_capabilities, pricing_policy_line=pricing_policy_line,
+                hard_excludes=ctx.theme_config.hard_excludes, exemplar_pool_paths=ctx.generation.exemplar_pool,
+                snapshot_id=panel.snapshot.snapshot_id,
+            )
+            status = copy_gen.process_copy_asset(
+                provider=provider, request=request, snapshot=panel.snapshot,
+                hard_excludes=ctx.theme_config.hard_excludes, max_attempts=ctx.generation.repair_budget,
+                trace=trace, stage="copy",
+            )
+            statuses.append(status)
+
+    ctx.extra["copy_asset_statuses"] = statuses
+    held = sum(1 for s in statuses if s.status.startswith("held"))
+    blocked = sum(1 for s in statuses if s.status.startswith("blocked"))
+    passed = sum(1 for s in statuses if s.status == "gated-pass")
+    return StageResult(
+        outcome="ok",
+        items_in=len(spin_results) * max(1, len(ctx.generation.destinations)),
+        items_out=len(statuses),
+        extra={"held": held, "blocked": blocked, "gated_pass": passed},
+    )
+
+
 def stage_packaging(ctx: RunContext, trace: TraceWriter) -> StageResult:
     """Write scorecards + signal provenance, register canonical keys."""
     assert ctx.store is not None and ctx.research is not None
@@ -359,6 +562,10 @@ def stage_digest(ctx: RunContext, trace: TraceWriter) -> StageResult:
         ranking_result=ranking_result,
         degraded_sources=degraded_sources,
         languages=ctx.research.languages,
+        brand_truth_panel=ctx.extra.get("brand_truth_panel"),
+        spin_results=ctx.extra.get("spin_results"),
+        copy_asset_statuses=ctx.extra.get("copy_asset_statuses"),
+        cs_holds=ctx.extra.get("cs_holds"),
     )
     data = digest_path.read_bytes()
     trace.artifact_write("digest", path=str(digest_path), kind="digest", bytes_=len(data), sha256=_sha256_hex(data))
@@ -375,6 +582,9 @@ CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
     ("theme_load", stage_theme_load),
     ("collection", stage_collection),
     ("ranking", stage_ranking),
+    ("brand_truth", stage_brand_truth),
+    ("spin", stage_spin),
+    ("copy", stage_copy),
     ("packaging", stage_packaging),
     ("digest", stage_digest),
 )

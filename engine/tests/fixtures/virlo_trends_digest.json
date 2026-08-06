@@ -1,0 +1,76 @@
+{
+  "data": [
+    {
+      "id": "201b47e5-16bf-40b5-944c-376101260b78",
+      "title": "Trends for Aug 6",
+      "region": "global",
+      "local_date": "2026-08-06",
+      "trends": [
+        {
+          "ranking": 1,
+          "trend": {
+            "id": "aaee7a83-1111-2222-3333-444455556666",
+            "name": "AI agents automating outbound sales for small businesses",
+            "description": "Creators are showing AI agents that qualify leads and send outbound messages for small businesses without a human SDR.",
+            "trend_type": "content"
+          },
+          "momentum": {
+            "score": 0.94,
+            "status": "rising",
+            "views_per_hour": 154000,
+            "updated_at": "2026-08-06T22:00:00.686Z"
+          },
+          "velocity_today_count": 12,
+          "velocity_median_views": 88000,
+          "detected_at": "2026-08-06T17:05:38.429+00:00",
+          "last_seen_at": "2026-08-06T17:05:38.429+00:00",
+          "exemplar_count": 40,
+          "id": "dcc4682f-aaaa-bbbb-cccc-1491ede00457",
+          "trend_id": "aaee7a83-1111-2222-3333-444455556666",
+          "top_exemplars": [
+            {
+              "video_id": "920f4bc1-aaaa-431e-a452-9c56aa35080f",
+              "url": "https://www.tiktok.com/@aiagentsdaily/video/7670004461808536845",
+              "platform": "tiktok",
+              "views": 770543,
+              "publish_date": "2026-08-04T02:54:48",
+              "author": {"username": "aiagentsdaily", "verified": false}
+            }
+          ]
+        },
+        {
+          "ranking": 2,
+          "trend": {
+            "id": "bbcc9d94-2222-3333-4444-555566667777",
+            "name": "Lindsay Clancy trial coverage and breakout moments",
+            "description": "Celebrity/true-crime trial coverage, unrelated to AI or business automation.",
+            "trend_type": "content"
+          },
+          "momentum": {
+            "score": 1.0,
+            "status": "new",
+            "views_per_hour": 1161390,
+            "updated_at": "2026-08-06T22:00:00.686Z"
+          },
+          "velocity_today_count": 27,
+          "velocity_median_views": 304425,
+          "detected_at": "2026-08-06T17:05:38.429+00:00",
+          "last_seen_at": "2026-08-06T17:05:38.429+00:00",
+          "exemplar_count": 115,
+          "id": "dcc4682f-7e0b-428d-8247-1491ede00457",
+          "trend_id": "bbcc9d94-2222-3333-4444-555566667777",
+          "top_exemplars": [
+            {
+              "video_id": "920f4bc1-4dff-431e-a452-9c56aa35080f",
+              "url": "https://www.tiktok.com/@cbsnews/video/7670004461808536845",
+              "platform": "tiktok",
+              "views": 7770543,
+              "publish_date": "2026-08-04T02:54:48",
+              "author": {"username": "cbsnews", "verified": false}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "data": {
+    "id": "9c96fddf-dc35-4be0-bbd9-12f4d22aea12",
+    "name": "AI Trends Tracker",
+    "is_recurring": true,
+    "active": true,
+    "finalized": false,
+    "analysis_data": null,
+    "latest_run": {"status": "completed", "total_videos_inserted": 0}
+  }
+}

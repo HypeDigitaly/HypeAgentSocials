@@ -98,6 +98,19 @@ research:
       family: launch_registries
       circuit_breaker_threshold: 3
 
+    # M3 (GOAL_ROADMAP.md): Virlo short-form social intelligence — two GET
+    # reads (trends digest + a read of the existing recurring "AI Trends
+    # Tracker" monitor), never a POST/create call. key_path is relative to
+    # the repo root; fail-closed to "source degraded, run continues" if the
+    # key file is missing (never a hard run failure).
+    virlo:
+      enabled: true
+      family: short_form_trends
+      key_path: "secrets/virlo.key"
+      monitor_id: "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"  # "AI Trends Tracker", cycles Sundays
+      budget_max_calls: 4
+      circuit_breaker_threshold: 3
+
 ranking:
   ranking_config_version: 1
 
@@ -129,6 +142,12 @@ ranking:
       low: 10
       mid: 100
       high: 1000
+    virlo:
+      # views_per_hour (trends digest) / video_count (agent-monitor themes)
+      # — directional starting values, no trailing baseline exists yet.
+      low: 1000
+      mid: 20000
+      high: 200000
 
   # Cross-day dedupe (§2.8a).
   dedupe_lookback_days: 30
@@ -147,3 +166,43 @@ ranking:
     cs:
       min_candidates: 1
       min_families: 1
+
+# =============================================================================
+# GENERATION (M3, GOAL_ROADMAP.md) — spin/copy/gate knobs, EN only for this
+# goal. Additive to the Phase-1 surface above; a theme predating M3 that
+# omits this block entirely still runs (interactive-file provider, default
+# mapping-distance bands, both goal destinations) — see config_load.py's
+# ``load_theme_generation_config`` docstring.
+# =============================================================================
+generation:
+  destinations: [linkedin, instagram_feed]
+
+  # interactive-file (default, costs nothing, the finish-line path for this
+  # goal) | openai-compatible-http (generic, config-driven, disabled below —
+  # no key exists for this goal).
+  copy_provider: interactive-file
+
+  # Combined per-artifact repair ceiling (§14.0): spin/claim regenerate
+  # attempts counted together, small and fixed.
+  repair_budget: 2
+
+  # Term-overlap score thresholds for spin's near/adjacent/far mapping
+  # distance (§6.9). Below adjacent_min is "far" — no offer, no
+  # product/product-adjacent CTA, ever (the deterministic spin-gate floor).
+  mapping_distance_bands:
+    near_min: 0.35
+    adjacent_min: 0.12
+
+  # EN structural exemplar pool (§6.11) — pointer only; the copy provider
+  # picks per asset (W8-6), the engine does not select for it.
+  exemplar_pool:
+    - "calibration/en/structural_corpus.md"
+
+  # Disabled: no key exists for this goal. Config-driven so a future key
+  # drops in with no code change.
+  openai_compatible:
+    enabled: false
+    base_url: ""
+    model: ""
+    key_path: ""
+    max_tokens: 400

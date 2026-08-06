@@ -359,6 +359,7 @@ SIGNAL_CLASS_BY_SOURCE = {
     "hugging_face": "launch-hype",
     "product_hunt": "launch-hype",
     "google_news": "rising",
+    "virlo": "spike",  # short-form trends decay fast — same half-life class as HN spikes
 }
 
 
@@ -561,6 +562,7 @@ class Scorecard:
     dedupe_status: str
     what_changed: str
     demand_modifier_label: str
+    matched_terms: list[str] = field(default_factory=list)
 
     def to_yaml_dict(self) -> dict:
         return {
@@ -584,6 +586,7 @@ class Scorecard:
             "dedupe_status": self.dedupe_status,
             "what_changed_since_prior_appearance": self.what_changed,
             "demand_modifier": self.demand_modifier_label,
+            "matched_terms": self.matched_terms,
         }
 
 
@@ -790,6 +793,7 @@ def rank(
             dedupe_status=resurgence.dedupe_status,
             what_changed=resurgence.what_changed,
             demand_modifier_label=demand_result.label,
+            matched_terms=fit_verdict.matched_terms,
         )
 
         if resurgence.outcome == "suppressed":
