@@ -16,6 +16,7 @@
 | `02_legal_claim_packs.md` | Design annex — claim-pack architecture, the Prohibited-Outcome Gate, depicted-attribute checking, new fact classes, price handling, counsel items. |
 | `03_pipeline_and_gates.md` | Design annex — trigger lanes, ranking profiles, recurrence rework, criterion registry, node injection points, fact-schema profiles, readiness extensions, fixture replacement. |
 | `04_RECONCILIATION.md` | **Produced by Amendment B Wave 0.** Binding rulings on C-1…C-13. Does not yet exist. |
+| `05_query_steering.md` | Design annex — per-source query surfaces (live-verified where possible), Virlo and DataForSEO control surfaces in detail, the two collection modes, query profiles, the missing topic filter, the per-language topic object. Closes **P-12**. |
 
 **The annexes are inputs, not the design.** Each was authored in parallel from a different domain and they contradict each other in thirteen places (§4). Nothing in an annex is binding until §4 rules on it. Where this master plan and an annex disagree, this file governs.
 
@@ -38,6 +39,8 @@
 | **P-9** | The generality proof cannot fail | §13.3's second fixture is *another Czech B2B SaaS*; the four ontology primitives are held constant in kind | The extensibility claim was never tested against what breaks it |
 | **P-10** | **The claim ledger can launder an unlawful claim** | The ledger is tenant-authored; all eleven check classes are substantiation-shaped | A tenant writes *"our sessions relieve anxiety"* into their own ledger → **VERIFIED**. EU health claims run on a **closed positive list** (Reg. 1924/2006 Art. 10): a true, evidenced claim is still unlawful if unauthorised |
 | **P-11** | **Generated imagery makes unchecked claims** | The claim gate covers text, including text on pixels, never what the pixels **depict** | An image of a dish not served, or packaging that does not exist, passes every gate. The AI disclosure is not a defence to a misleading-action claim about the product's nature |
+
+| **P-12** | **Configured watch keywords never reach the wire, and nothing filters the feeds that ignore them** | *"query-shaped collector"* appears exactly twice in the repository, both in §10, undefined and never mapped to a source. No per-source query template exists. §2.8's normalisation contains no topic filter — yet B3 rests its ranking design on one, stating it is *"owned by B1/B2"*, where it does not exist. Watch topics are one flat list with no per-language surface forms | Nine sources accept our keywords and are sent none; eight ignore them and are filtered by nothing. Every irrelevant item from a discovery feed pays for a per-candidate LLM brand-fit call. A theme whose keywords match nothing still passes readiness. Closed by `05_query_steering.md` |
 
 **P-10 and P-11 are safety defects independent of generalisation.** They apply to every tenant, every vertical, every playbook, and neither depends on the playbook layer. That severability is why they move to Amendment A.
 
