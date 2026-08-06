@@ -45,6 +45,24 @@
 
 Defaults adopted without a user gate (operator may veto at Stage 5): D-10 Notion split (REST internal token for cron/records, MCP for interactive); ElevenLabs primary cs TTS w/ Azure fallback; local FFmpeg assembly; 30-day raw-artifact retention default; DataForSEO as SERP vendor; human-reviewed periodic ranking calibration (no auto weight updates); Postiz trial deferred to implementation start; blog pipeline config-gated, deferred detail to implementation.
 
+## Wave 4 — conductor triage of review findings (appended 2026-08-06, conductor)
+
+Review totals: R1 3B/13M/7m · R2 4B/19M/9m · R3 1B/6M/5m · R4 5B/9M/7m · R5 4B/13M/6m (B=blocker, M=major, m=minor).
+
+**Triage outcome: ALL 17 blockers ACCEPTED; ALL majors ACCEPTED.** Rationale: every blocker/major was verified against the plan text as a genuine contradiction, gap, or unimplemented obligation; none conflicts with a locked or operator decision; the reviews' "required change" columns are the fix specifications. Minors: fixer applies where cheap, else logs to Appendix B with rationale. Notable triage directions (where a finding offered options, the conductor picks):
+
+| # | Finding | Direction |
+|---|---------|-----------|
+| T-1 | R4-B1 (likeness/voice consent absent) | Take the BAN option: v1 explicitly disables synthetic human presenters and voice clones (logged decision); person-basis flag + consent-record design deferred until avatars enter scope. Constrain the "talking human" motion class + voice-identity knob accordingly |
+| T-2 | R4-B2 (AI-content class relaxable by config; audio omitted) | Engine-level derivation from the generation record; config may only tighten; extend to synthetic speech + music (CS-B TTS assets ARE synthetic-audio) |
+| T-3 | R3-B1 (Czech thin-pack silent degradation) | Take option (a): per-language minimum evidence/volume band knob, default loose, alarmable in digest; Czech curation ritual stays merged with the committed weekly Reddit ritual (W2.5-2), surfaced by the staleness flag |
+| T-4 | R1-M12 (voided SYNTHESIS table still live) | EXCEPTION authorized to the single-writer rule: fixer may APPEND supersession banners to SYNTHESIS.md §3.1 and §7 item 8 pointing at W2.5-4/D-27 (append-only; logged here) |
+| T-5 | R1-B3 (Appendix A contradicts test-mode dry-run default) | Re-cast per option (a): explicit dry-run-disabled statement + why, plus the §4.6 one-sentence rule (mode never authorizes spend; the dry-run flag converts forecast→submission) |
+| T-6 | R1-B1 + R2-B1 (text-model layer: no provider role, no token budget, no economics) | Treat as ONE structural fix: text-provider role in §5, LLM budget block (per-run ceiling + per-stage call caps + judge allowance) consumed by the cost gate, text line in §5.4 economics + §12.1 forecast |
+| T-7 | R5-B2/F13 + R5-F14/F16 (caps units incompatible) | Canonical unit = MASTERS per language; rewrite §8.11's example in masters; specify count-cap vs dollar-cap precedence (whichever trips first stops submission; both logged) |
+| T-8 | R4 majors OD-24/25/26 | Add to §16 as named open legal items; EDPB-guideline verification becomes a Phase-0 prerequisite |
+| T-9 | R2-M (price re-verification lapse = self-inflicted outage) | Soften lapse behavior: stale price data → forecasts marked stale + submission requires operator acknowledgement, not hard pipeline stop |
+
 ## Wave 2 synthesis — refinements to locked decisions (appended 2026-08-06, T16)
 
 *Refinements narrow or clarify a locked decision; they never reverse one. Each cites the owning brief.*
