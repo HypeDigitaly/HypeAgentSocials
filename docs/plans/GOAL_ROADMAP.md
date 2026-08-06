@@ -44,6 +44,14 @@ The goal's completion criterion is the **test run**, and the test run defines th
       (a) Virlo as a real collector in the engine via its REST API (token in API_KEYS.txt;
       reads only: trends digest / monitor data / existing keyword-search results — NEVER
       create paid jobs from the engine without the cost gate; respect the polling policy).
+      **API surface (verified 2026-08-07 from dev.virlo.ai/docs):** base `/v1`, Bearer
+      `virlo_tkn_…`; current surface is `/v1/agents` (Orbit/Comet endpoints deprecated,
+      removal 2026-08-03 — do NOT build on them even though the MCP keeps legacy tool
+      names); Trends resource exposes trending topics / digests / emerging trends as GET
+      reads; GET reads are free, POST creation costs credits. Existing recurring agent to
+      read: "AI Trends Tracker" monitor id `9c96fddf-dc35-4be0-bbd9-12f4d22aea12`
+      (cycles Sundays). Also seed the brand-truth stage from `config/brand_facts.yaml`
+      (authored 2026-08-07, commit 6ad692a).
       (b) Brand-truth resolution, config-primary seed: F-A identity + F-C capabilities +
       F-D ICP + F-E CTA set + F-F pricing policy ("prices never stated") as config YAML,
       sourced from docs/research/NOTION_KB_INVENTORY.md + Notion "Čísla a sliby" (F-H:
