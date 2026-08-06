@@ -72,7 +72,20 @@ and its flag-rate ceiling is recorded as inactive** (§14.2, R2-M15).
 | Frozen eval CS (12 items) | Authored, disjoint | Sign off freeze | — |
 | "Stable" operational definition (above) | Proposed | Approve | — |
 
-## Operator-approval queue (everything marked, in one place)
+## Operator-approval queue — CLOSED 2026-08-07 (decision W8-6)
+
+**The operator delegated exemplar curation to model judgment at run time** ("the LLM picks
+those properly during the flow — we do not want this to be too strict automation"). The
+authored calibration artefacts **stand as-is without operator sign-off**; the generation-time
+model selects voice exemplars from the corpus pool (including the 13 Notion-mined Czech
+candidates in `cs/notion_exemplar_candidates.md`) per asset. This delegates *taste* — which
+exemplar fits — never *truth*: the golden sets and frozen eval sets **remain frozen as
+authored** (`meta.frozen` is treated as flipped by W8-6), the judge gates are untouched, and
+if judge stability against the golden sets proves poor in practice the recourse is
+re-authoring with operator input, not silently loosening the judge. Full rationale:
+DECISION_LOG.md row W8-6.
+
+*The original queue is kept below for the record only — no item awaits action:*
 
 1. `cs/structural_corpus.md`: approve/reject drafts CS-LI-D1, CS-LI-D2, CS-CA-D1, CS-SF-D1,
    CS-SC-D1 as corpus exemplars; supply real Czech exemplars for the open slots.

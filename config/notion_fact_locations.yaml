@@ -160,7 +160,8 @@ fact_locations:
   F-K_product_rules:   { home: "config", state: config-primary }
   F-L_voice_rules:     { home: "config + exemplar corpus (calibration/)", state: config-primary,
                          notes: "Brand voice reference material: Logo a vzhled značky + FULL CORPUS pages feed the exemplar corpus, but the rules themselves are config." }
-  F-M_visual_baseline: { home: "config; brand assets on 'Logo a vzhled značky'", page_id: "3b3ddb91-8433-810e-b3f7-ebeef02c1c67", state: config-primary }
+  F-M_visual_baseline: { home: "config; brand assets on 'Logo a vzhled značky'", page_id: "3b3ddb91-8433-810e-b3f7-ebeef02c1c67", state: config-primary,
+                         notes: "W8-6 split: HARD RULES (safe zones, contrast, disclosure placement) stay config-primary and deterministic; ASSET CHOICE (which logo variant, colors, existing published image) is model-side at run time, selected from the inventoried kit in docs/research/NOTION_KB_INVENTORY.md per destination and context. No pre-declared brand primary exists by operator decision." }
   F-N_compliance:      { home: "config", state: config-primary }
 
 # --- Confirmation queue for the operator -------------------------------------
