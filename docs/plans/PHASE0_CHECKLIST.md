@@ -51,16 +51,17 @@
 
 ## Part 2 — Things the builder does (can run in parallel)
 
-*Listed so you know what's happening; no action from you except where marked.*
+*Listed so you know what's happening; no action from you except where marked. Status updated 2026-08-06 — first build pass done.*
 
-- Notion knowledge base: designated fact locations chosen, plan-vs-fact separation confirmed, read-only token issued. *(You'll be asked to confirm the locations.)*
-- Claim ledger seeded with whatever is genuinely approved — **an honestly empty ledger is a valid outcome.**
-- Hard excludes written into config; special-category source deny-list written.
-- FFmpeg installed and pinned, fonts bundled, Czech characters verified.
-- Exemplar corpora assembled per language. *(You'll be asked to supply/approve example posts.)*
-- **The four calibration artefacts** — Czech + English structural calibration, Czech + English judge golden sets — plus the frozen eval set.
-- The two privacy artefacts drafted for counsel: the legitimate-interest assessment (per purpose, per source family) and the privacy notice naming ÚOOÚ.
-- Two provider questions answered by inspection: person-generation eligibility for this account/region, and whether the router's task status names the rendering model.
+- ⏳ Notion knowledge base: designated fact locations chosen, plan-vs-fact separation confirmed, read-only token issued. *(BLOCKED ON YOU — needs your Notion workspace and a read-only token; you'll be asked to confirm the locations.)*
+- ✅ Claim ledger seeded honestly empty (`config/claim_ledger.yaml`) — schema in place, zero claims, location default pending your OD-9 confirmation.
+- ✅ Hard excludes baseline written (`config/hard_excludes.yaml`) and special-category source deny-list written (`config/special_category_source_deny_list.yaml`) — structure and semantics complete; the brand-specific values (competitor names, banned topics) are yours to fill.
+- ✅ FFmpeg 8.1 pinned (`config/ffmpeg_pin.yaml`), Noto Sans bundled with license (`assets/fonts/`), Czech glyph coverage verified with rendered evidence (`assets/fonts/czech_glyph_test.png`). Two engine constraints discovered and recorded (newline/CRLF rendering).
+- ✅ Token runbooks written: Meta Ad Library renewal + Notion token reissue (`runbooks/`).
+- 🟡 Exemplar corpora: English drawn from your own marketing docs (15 exemplars, curation needed); **Czech exemplars don't exist in the repo — 5 drafts authored for your approval, rest [OPERATOR TO SUPPLY]** (`calibration/cs/structural_corpus.md`).
+- 🟡 **The four calibration artefacts + frozen eval set** — all drafted (`calibration/`): EN golden set 18 items, CS golden set 22 items covering all eleven Czech judge dimensions, frozen eval sets 12+12 items. Numeric measurement bands await tooling (Phase 1); **your approval queue is listed in `calibration/README.md`** (7 items).
+- 🟡 The privacy artefacts drafted for counsel (`legal/`): recipient map (10 providers), four legitimate-interest assessments (per purpose × source family), Czech+English privacy notice naming ÚOOÚ. **15 [COUNSEL TO CONFIRM] + [OPERATOR TO CONFIRM] items marked inside** — the EDPB verification (OD-26) still gates finalisation.
+- ⏳ Two provider questions answered by inspection: person-generation eligibility for this account/region, and whether the router's task status names the rendering model. *(BLOCKED — needs the Kie.ai account set up.)*
 
 ---
 

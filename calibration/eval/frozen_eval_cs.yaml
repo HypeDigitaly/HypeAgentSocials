@@ -1,0 +1,174 @@
+# =============================================================================
+# FROZEN EVAL SET — never read while authoring prompts (§14.8).
+# Grows only by deliberate, logged addition. Additions log below.
+# =============================================================================
+# Language: Czech.
+# Governing plan section: ARCHITECTURE_PLAN.md §14.8, §17.2 Phase 0.
+#
+# Purpose: MEASURING ONLY — pre-rollout comparison of any prompt/rubric/model
+# change on pass rate, human-agreement rate and token cost, against the last
+# known-good version, BEFORE the change ships.
+#
+# Disjointness: all items authored specifically for this file; no text shared
+# with calibration/cs/golden_set.yaml or the structural corpora.
+# Expected verdicts assume the default theme config: vykání, soft-CTA classes only.
+# Provenance: every item authored-for-eval, 2026-08-06, Phase 0.
+
+meta:
+  language: cs
+  version: 1.0-frozen-candidate
+  item_count: 12
+  authored: 2026-08-06
+  frozen: pending operator sign-off  # becomes 'true' on freeze; after that, additions-log only
+
+items:
+  - id: ev-cs-01
+    input_type: linkedin-post-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Přímé pojmenování problému, konkrétní čísla s vlastníkem, vykání, jedno měkké CTA."
+    text: |
+      Za druhé čtvrtletí jsme prošli doručitelnost u 18 klientských domén. U jedenácti z nich končila víc než třetina e-mailů ve spamu — a nikdo o tom nevěděl.
+
+      Příčina byla pokaždé stejná: jedna doména na všechno, žádný warmup a seznam kontaktů, který nikdo dva roky nečistil.
+
+      Náprava není nijak objevná. Oddělená odesílací doména, tři týdny zahřívání, pryč s adresami, které nikdy nic neotevřely.
+
+      Odpovědi nestouply proto, že bychom psali lépe. Stouply proto, že e-maily konečně dorazily.
+
+      Pokud si chcete projít, jak jste na tom, kontrolní seznam z těchto auditů najdete na našem webu.
+
+  - id: ev-cs-02
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Zakázaný opener „v dnešní uspěchané době“, hedge stacking, kalk „odemknout novou úroveň“, nulová konkrétnost."
+    text: |
+      V dnešní uspěchané době je třeba poznamenat, že digitální transformace může potenciálně představovat určitou příležitost pro vaše obchodní oddělení. Umělá inteligence vám může pomoci odemknout zcela novou úroveň produktivity a posunout vaše podnikání kupředu.
+
+  - id: ev-cs-03
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Flip registru (vykání → tykání) uprostřed assetu + gamifikované CTA."
+    text: |
+      Připravili jsme pro vás přehled nejčastějších chyb v obchodních e-mailech, se kterými se u klientů setkáváme.
+
+      Chceš ho taky? Hoď do komentáře „CHYBY", dej like a sdílej — a nezapomeň si mě přidat, jinak ti ho nepošlu!
+
+  - id: ev-cs-04
+    input_type: carousel-copy-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Jedna myšlenka na slide, konkrétní údaje, čistý oblouk, jedno CTA na závěrečném slidu."
+    text: |
+      S1: Vaše CRM vám lže.
+      S2: Zhruba pětina B2B kontaktů za rok zastará.
+      S3: Nejčastější důvod: lidé mění práci.
+      S4: Zastaralý kontakt není neutrální — je to bounce. A bounci škodí doručitelnosti.
+      S5: Řešení č. 1: ověřovat před každou kampaní, ne jednou za kvartál.
+      S6: Řešení č. 2: sledovat změny rolí. Kdo odešel, je otevřené dveře u nové firmy.
+      S7: Celý postup ověřování jsme sepsali — odkaz v komentáři.
+
+  - id: ev-cs-05
+    input_type: carousel-copy-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Abstraktní benefity na každém slidu, kalky („bezešvý růst“, „na další level“), dvě soupeřící CTA."
+    text: |
+      S1: Transformujte svůj obchodní tým
+      S2: Pracujte chytřeji, ne tvrději
+      S3: Bezešvý růst bez limitů
+      S4: Posuňte se na další level
+      S5: Budoucnost je automatizovaná
+      S6: Rezervujte si demo ještě dnes!
+      S7: Nebo si stáhněte náš e-book zdarma!
+
+  - id: ev-cs-06
+    input_type: short-form-script-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Hák do 3 vteřin, mluvené krátké věty, žádná čísla v audiu (claim payload patří do on-screen textu)."
+    text: |
+      (0–3 s) Načasování follow-upu vám zabíjí odpovědi.
+      (3–10 s) Většina lidí píše znovu už po hodině. To působí jako tlak.
+      (10–20 s) Počkejte tři dny. Zpráva pak přijde jako připomenutí, ne jako honění.
+      (20–28 s) Jedna změna, nic víc. Zkuste to na dalších deseti konverzacích.
+      (28–32 s) Celý postup najdete v popisku.
+
+  - id: ev-cs-07
+    input_type: short-form-script-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Curiosity-gap tease po celou stopáž, sliby bez obsahu, mluvené superlativy, CTA „sleduj a komentuj“."
+    text: |
+      (0–4 s) O tomhle šíleném growth hacku nikdo nemluví...
+      (4–12 s) Je to tajemství každé sedmimístné agentury, kterou sledujete. A je přímo před vámi.
+      (12–22 s) Ti největší hráči nechtějí, abyste ho znali. Proto vám ho nikdo nevysvětlil.
+      (22–30 s) Sleduj mě a napiš do komentáře „TAJEMSTVÍ" — všechno odhalím ve druhém dílu.
+
+  - id: ev-cs-08
+    input_type: caption-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Sdělení kompletní v prvních 125 znacích, CTA tvaru „odkaz v bio“, povolené anglicismy v substantivní pozici."
+    text: |
+      Tři dny, ne tři hodiny — načasování follow-upu, které nám zdvojnásobilo odpovědi. Celý postup krok za krokem na webu, odkaz v bio.
+
+  - id: ev-cs-09
+    input_type: caption-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Pointa pohřbená za foldem, vata na začátku, vložená surová URL na platformě, kde odkaz v popisku není klikatelný."
+    text: |
+      Tak jsme poslední dobou zkoušeli spoustu různých přístupů a upřímně, byla to docela jízda plná zajímavých poznatků... každopádně pokud vás zajímá, co jsme zjistili o načasování follow-upů, mrkněte na https://example.com/blog/nacasovani
+
+  - id: ev-cs-10
+    input_type: linkedin-post-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Přiznaná chyba, konkrétní čísla, přirozeně delší české věty (test, že se pásmo nedědí z angličtiny), žádné CTA — musí projít."
+    text: |
+      Naše první automatizovaná kampaň byla průšvih: čtyři stovky zpráv, tři odpovědi, a jedna z nich zněla, ať už nepíšeme.
+
+      Chyba nebyla v automatizaci, ale v tom, že jsme zautomatizovali špatný ruční proces — stejný generický úvod, jen rychleji a ve větším objemu, takže si toho všimlo víc lidí najednou.
+
+      Druhá kampaň šla na šedesát lidí, každý vybraný kvůli konkrétnímu důvodu. Čtrnáct odpovědí.
+
+      Menší seznam, lepší důvod psát. Ta lekce nás stála měsíc a vzali bychom ji znovu.
+
+  - id: ev-cs-11
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Strojový rytmus: pětkrát identická konstrukce „X není Y — je to Z“, zakončeno prázdným „Souhlasíte?“."
+    text: |
+      Prodej není mluvení — je to naslouchání.
+
+      Marketing není křik — je to rezonance.
+
+      Outreach není objem — je to načasování.
+
+      Růst není štěstí — jsou to systémy.
+
+      Úspěch není dar — je to inženýrství.
+
+      Souhlasíte?
+
+  - id: ev-cs-12
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Neatributovatelná „studie ukazují“ čísla + garantovaný výsledek + umělá urgence — sebejistý, kompletně vypadající slop."
+    text: |
+      Studie ukazují, že 87 % nákupčích dnes preferuje oslovení personalizované umělou inteligencí.
+
+      Lídři trhu se shodují: týmy, které letos nenasadí AI agenty, přijdou o 40 % své pipeline ve prospěch konkurence.
+
+      Nasaďte náš systém a do 30 dnů garantovaně zdvojnásobíte počet schůzek. Každá sekunda se počítá — začněte ještě dnes!
+
+# -----------------------------------------------------------------------------
+# ADDITIONS LOG (append-only; every row is a deliberate, logged addition — §14.8)
+# date | item id | added by | reason | approved by
+# -----------------------------------------------------------------------------
+additions_log: []

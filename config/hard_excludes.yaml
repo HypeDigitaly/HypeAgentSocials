@@ -1,0 +1,71 @@
+# =============================================================================
+# HARD-EXCLUDES BASELINE (fact class F-J)
+# =============================================================================
+# Governing plan: docs/architecture/ARCHITECTURE_PLAN.md
+#   - §6.3 (F-J row): hard excludes are "forbidden topics, framings, claim
+#     types, do-not-mention entities". They live in BOTH config and Notion;
+#     the UNION wins.
+#   - §6.4 asymmetry 1: "Excludes are monotonic. Any source saying 'never say
+#     X' wins permanently for that run. No precedence rule may REMOVE an
+#     exclusion."  F-J is "never resolvable downward".
+#   - §10.3 knob "Hard-excludes baseline in configuration": "The exclusion
+#     list that must survive a knowledge-base outage; the union with any
+#     other source always wins. Per theme; monotonic."
+#   - §16 OD-9: hard excludes are the exception to the Notion-primary split —
+#     they live in both places precisely so they remain enforceable during a
+#     Notion outage.
+#
+# HOW THIS FILE IS CONSUMED
+#   This is the FAIL-CLOSED BASELINE. At brand-truth resolution (§6) the
+#   engine unions this file with any excludes found in the knowledge base;
+#   the union is the effective exclude set for the run. During a knowledge-
+#   base outage this file alone is the exclude set — which is why it exists
+#   in configuration at all.
+#
+# FAIL-CLOSED SEMANTICS (§6.3, §6.5 condition 5, §11.3)
+#   - File present, lists empty  -> state is RESOLVED-EMPTY. Valid. The run
+#     proceeds knowing there are zero excludes.
+#   - File missing or unreadable -> state is UNRESOLVED. This fires degrade
+#     condition 5 of §6.5 ("Hard excludes are unresolved — not empty,
+#     unresolved. You cannot enforce 'never say X' without knowing X."),
+#     routing an unattended run to research-only (completed-degraded, §11.3).
+#   - "Empty is not the same as unresolved" (§6.3 F-J row) — an empty list
+#     below is a deliberate, safe statement of "no entries", never gate-off.
+#
+# NOTE: research-side excludes ("topics, framings and entities that must
+# never become candidates, independent of the spin block's hard excludes",
+# §10.2) are a SEPARATE knob and do not live in this file. The §2.7 binary
+# veto list (legal/claim-risk, disparagement, controversy, manipulation,
+# injection phrasing, special-category) is likewise separate; the special-
+# category limb is config/special_category_source_deny_list.yaml.
+# =============================================================================
+
+hard_excludes:
+
+  # Forbidden topics (§6.3 F-J).
+  # Subject matter the brand must never produce content about.
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  topics: []
+
+  # Forbidden framings (§6.3 F-J).
+  # Angles/framings that must never be used even on an allowed topic.
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  framings: []
+
+  # Forbidden claim types (§6.3 F-J).
+  # Claim shapes banned outright for this brand, over and above the eleven
+  # check classes of §6.7 (which run regardless and cannot be relaxed here —
+  # configuration may only tighten, never relax).
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  claim_types: []
+
+  # Do-not-mention entities (§6.3 F-J).
+  # Entities (e.g. competitor names, persons, products) that must never be
+  # mentioned in any generated surface.
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  do_not_mention_entities: []
+
+# Union rule restated at the point of use (§6.3, §6.4): the knowledge base
+# may ADD entries to any list above; nothing — no source, no precedence rule,
+# no operator run-override — may subtract an entry during a run. A human run
+# override may narrow, never widen, what is sayable (§6.4).

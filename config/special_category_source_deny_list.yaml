@@ -1,0 +1,86 @@
+# =============================================================================
+# SPECIAL-CATEGORY SOURCE / COMMUNITY DENY-LIST (GDPR Article 9)
+# =============================================================================
+# Governing plan: docs/architecture/ARCHITECTURE_PLAN.md
+#   - §2.6, design consequence "A special-category exclusion, applied twice":
+#       (a) "a source- and community-level deny-list, declared per theme and
+#           applied BEFORE collection, for any source or community whose
+#           defining characteristic is a special category"
+#       (b) "a deterministic lexical check over each stored excerpt AFTER
+#           collection"
+#     "Both fail to DO NOT STORE / DELETE, never to 'flag and continue' —
+#      flagging a record that should not exist is not a control."
+#   - §2.7 veto list: "special-category source or content (§2.6's Article 9
+#     exclusion — a distinct class from controversy, with a distinct
+#     disposition: the item is NOT STORED rather than merely not ranked)."
+#   - Review ruling R4-M1 (§ appendix): pre-collection deny-list plus
+#     post-collection deterministic check, both failing to do-not-store/delete.
+#   - §17.2 Phase 0: "The special-category source deny-list written (§2.6)."
+#
+# HOW THIS FILE IS CONSUMED
+#   Applied at collection time, BEFORE any request is made: a source or
+#   community matching this list is never collected from and nothing from it
+#   is ever stored. This is limb (a) of §2.6's two-part exclusion. Limb (b),
+#   the post-collection deterministic lexical check over stored excerpts, is
+#   an engine check, not a config list — it is noted here only so nobody
+#   mistakes this file for the whole control.
+#
+# FAIL-CLOSED SEMANTICS
+#   - File present, entries empty -> resolved-empty: no theme-specific denied
+#     sources yet, but the CRITERION below still applies wherever the engine
+#     can evaluate it. Empty means no entries, NOT gate-off.
+#   - File missing or unreadable -> the deny-list is unresolved; collection
+#     from any source that could carry special-category data must not proceed
+#     (the control cannot be enforced without knowing its contents — same
+#     logic §6.5 applies to hard excludes).
+#   - Disposition on match is always DO NOT STORE / DELETE, never
+#     flag-and-continue (§2.6).
+# =============================================================================
+
+special_category_deny_list:
+
+  # -----------------------------------------------------------------------
+  # The denial criterion, as the plan states it (§2.6):
+  # "any source or community whose defining characteristic is a special
+  #  category". The plan's own named examples of such defining
+  # characteristics: "a community defined by a health condition, a political
+  # affiliation or a sexual orientation" — which "is not 'high-severity
+  # controversy', yet an excerpt taken from it can carry an Article 9
+  # special-category datum that legitimate interest alone cannot lawfully
+  # cover."
+  # -----------------------------------------------------------------------
+  denied_defining_characteristics:
+    # Named explicitly in §2.6:
+    - health_condition          # "a community defined by a health condition"
+    - political_affiliation     # "... a political affiliation"
+    - sexual_orientation        # "... or a sexual orientation"
+    # The remaining GDPR Art. 9(1) categories, included because §2.6's
+    # control is defined by reference to Article 9 itself ("an Article 9
+    # special-category datum"), not by its three illustrative examples:
+    - racial_or_ethnic_origin
+    - religious_or_philosophical_beliefs
+    - trade_union_membership
+    - genetic_data
+    - biometric_data_for_identification
+    - health_data               # broader than a named condition
+    - sex_life
+
+  # -----------------------------------------------------------------------
+  # Denied sources and communities, per theme (§2.6: "declared per theme and
+  # applied before collection"). Concrete entries are theme-specific: e.g. a
+  # specific subreddit, forum, feed or community whose defining
+  # characteristic matches any category above. The plan names no concrete
+  # sources — it defines the criterion; the operator declares the instances.
+  # -----------------------------------------------------------------------
+
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  denied_sources: []
+
+  # operator-supplied — empty until provided; empty means no entries, NOT gate-off
+  denied_communities: []
+
+# Disposition, restated from §2.6 because it is the point of the control:
+# a match here means the item is never requested and never stored; a match
+# found after the fact (limb (b)) means the record is DELETED. Never
+# "flag and continue" — "flagging a record that should not exist is not a
+# control."

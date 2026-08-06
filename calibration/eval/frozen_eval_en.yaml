@@ -1,0 +1,177 @@
+# =============================================================================
+# FROZEN EVAL SET — never read while authoring prompts (§14.8).
+# Grows only by deliberate, logged addition. Additions log below.
+# =============================================================================
+# Language: English.
+# Governing plan section: ARCHITECTURE_PLAN.md §14.8 (frozen eval set and the
+# pre-rollout regression gate), §17.2 Phase 0.
+#
+# Purpose: MEASURING ONLY. Any candidate change to a prompt pattern, rubric or
+# model selection runs against this set BEFORE it is applied, compared with the
+# last known-good version on pass rate, human-agreement rate and token cost.
+# An eval set that authors have read while writing prompts measures nothing.
+#
+# Disjointness: all items below are authored specifically for this file and share
+# no text with calibration/en/golden_set.yaml or the structural corpora.
+# Provenance: every item authored-for-eval, 2026-08-06, Phase 0.
+
+meta:
+  language: en
+  version: 1.0-frozen-candidate
+  item_count: 12
+  authored: 2026-08-06
+  frozen: pending operator sign-off  # becomes 'true' on freeze; after that, additions-log only
+
+items:
+  - id: ev-en-01
+    input_type: linkedin-post-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Concrete observation hook, owned numbers, single soft CTA."
+    text: |
+      We audited 31 cold email accounts this spring. 19 of them were landing in spam and the senders had no idea.
+
+      The pattern was the same every time: one domain doing outreach and newsletters and billing, no warmup, and a list nobody had cleaned since 2024.
+
+      Fixing it was boring. Separate sending domain, three weeks of warmup, remove every address that never opened anything.
+
+      Reply rates didn't jump because the copy got better. They jumped because the emails started arriving.
+
+      If you want the checklist we use for these audits, it's on our site.
+
+  - id: ev-en-02
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Scene-setting throat-clear opener, buzzword chain, no facts."
+    text: |
+      In an era of unprecedented digital transformation, forward-thinking sales organizations are harnessing the power of artificial intelligence to redefine what's possible in customer acquisition. The journey to excellence begins with embracing innovation at every touchpoint of the revenue engine.
+
+  - id: ev-en-03
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Vague proof ('incredible results'), hype emoji, urgency-bait CTA stack."
+    text: |
+      Our clients are seeing INCREDIBLE results with our new AI workflow! 🚀🔥
+
+      This is your sign to stop doing outreach the old way.
+
+      Drop a "READY" in the comments, smash that repost button, and follow me so you don't miss part 2 — spots are filling up fast!
+
+  - id: ev-en-04
+    input_type: carousel-copy-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "One idea per slide, concrete nouns, clean arc, single CTA on the last slide."
+    text: |
+      S1: Your CRM is lying to you.
+      S2: 23% of B2B contact data goes stale every year.
+      S3: Job changes are the biggest single cause.
+      S4: A stale contact isn't neutral — it costs a bounce, and bounces cost deliverability.
+      S5: Fix: verify before every campaign, not once a quarter.
+      S6: Fix: track job-change signals — the person who left is a warm door at their new company.
+      S7: We wrote the verification workflow up as a guide — link below.
+
+  - id: ev-en-05
+    input_type: carousel-copy-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Every slide is an abstract benefit; no fact anywhere; two competing CTAs."
+    text: |
+      S1: Transform your revenue engine
+      S2: Work smarter, not harder
+      S3: Efficiency at scale
+      S4: Growth without limits
+      S5: The future is automated
+      S6: Book a demo today
+      S7: Or download our free ebook now!
+
+  - id: ev-en-06
+    input_type: short-form-script-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Direct problem hook inside 3 seconds, spoken-register short sentences, claim payload kept out of audio."
+    text: |
+      (0-3s) Your follow-up timing is killing your reply rate.
+      (3-10s) Most people follow up an hour after the first message. That reads as pressure.
+      (10-20s) Wait three days. The message lands as a reminder, not a chase.
+      (20-28s) One change, nothing else. Try it on your next ten conversations.
+      (28-32s) Full breakdown in the description.
+
+  - id: ev-en-07
+    input_type: short-form-script-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Curiosity-gap tease held for the entire runtime; the reveal never comes; spoken superlatives."
+    text: |
+      (0-4s) Nobody is talking about this one insane growth hack...
+      (4-12s) It's the secret behind every seven-figure agency you follow. And it's hiding in plain sight.
+      (12-22s) The biggest names don't want you to know it. That's why you've never heard it explained.
+      (22-30s) Follow and comment "SECRET" — I'll reveal everything in part 2.
+
+  - id: ev-en-08
+    input_type: caption-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Message complete in the first 125 characters, link-in-bio shaped CTA for a non-clickable platform."
+    text: |
+      Three days, not three hours — the follow-up timing that doubled our reply rate. Step-by-step breakdown on the site, link in bio.
+
+  - id: ev-en-09
+    input_type: caption-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Front-loads nothing, buries the point after the fold, pastes a raw URL on a platform where captions aren't clickable."
+    text: |
+      So we've been experimenting with a bunch of different approaches lately and honestly it's been quite a journey with lots of learnings along the way... anyway if you're curious about what we found out about follow-up timing, check https://example.com/blog/follow-up-timing
+
+  - id: ev-en-10
+    input_type: linkedin-post-draft
+    expectation: known-good
+    expected_verdict: pass
+    why: "Personal stake with a failure admitted; specific numbers; no CTA at all — must still pass."
+    text: |
+      Our first automated campaign was a faceplant. 400 messages, 3 replies, one of them telling us to stop.
+
+      The mistake wasn't automation. It was that we automated a bad manual process — same generic opener, just faster.
+
+      The second campaign went out to 60 people, each picked because of a concrete trigger. 14 replies.
+
+      Smaller list, better reason to write. That lesson cost us a month and I'd pay it again.
+
+  - id: ev-en-11
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Machine rhythm: identical 'X isn't Y — it's Z' construction five times in a row."
+    text: |
+      Selling isn't talking — it's listening.
+
+      Marketing isn't shouting — it's resonating.
+
+      Outreach isn't volume — it's timing.
+
+      Growth isn't luck — it's systems.
+
+      Success isn't given — it's engineered.
+
+      Agree?
+
+  - id: ev-en-12
+    input_type: linkedin-post-draft
+    expectation: known-bad
+    expected_verdict: fail
+    why: "Specific-looking but unattributable authority claims plus an outcome guarantee — confident, complete-looking slop."
+    text: |
+      Studies show that 87% of buyers now prefer AI-personalized outreach.
+
+      Industry leaders agree: teams that don't adopt agentic prospecting this year will lose 40% of their pipeline to competitors who do.
+
+      Adopt the system below and you will double your booked meetings within 30 days — guaranteed, no exceptions.
+
+# -----------------------------------------------------------------------------
+# ADDITIONS LOG (append-only; every row is a deliberate, logged addition — §14.8)
+# date | item id | added by | reason | approved by
+# -----------------------------------------------------------------------------
+additions_log: []

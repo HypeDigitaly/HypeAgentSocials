@@ -1,0 +1,302 @@
+# English judge golden set — Phase 0 calibration artefact
+# Governing plan sections: ARCHITECTURE_PLAN.md §14.2 (judge calibration and
+# false-positive economics), §14.4 (English rubric), §17.2 Phase 0, ruling R2-M15.
+#
+# Purpose: human-vs-judge agreement measurement, tracked BY DIRECTION
+# (judge-passed/human-failed tuned separately from judge-failed/human-passed).
+# Until this set produces stable verdicts run by hand, the English judge runs
+# deliberately lenient and the English flag-rate ceiling is recorded as inactive.
+#
+# English rubric dimensions (§14.4): hook-shape, specificity-proof, personal-stake,
+# rhythm, structure, cta-target-tone; plus banned-patterns (lexicon + cross-pack
+# recurrence, §14.2 layer 1) which the judge sees as context.
+#
+# Provenance classes: adapted-positive | deliberate-negative | borderline.
+# NOTE: real borderline drafts from pilot runs (§14.2) cannot exist before Phase 2;
+# the borderlines below are authored stand-ins and should be progressively replaced
+# by real pilot-run drafts, with each replacement logged.
+#
+# STATUS: DRAFT — adapted positives are edits of corpus posts and need operator
+# approval before the set is frozen for calibration.
+
+meta:
+  language: en
+  version: 0.1-draft
+  item_count: 18
+  authored: 2026-08-06
+  needs_operator_approval:
+    - en-gp-01
+    - en-gp-02
+    - en-gp-03
+    - en-gp-04
+    - en-gp-05
+
+items:
+  # ---------- adapted positives ----------
+  - id: en-gp-01
+    provenance: adapted-positive
+    source: "docs/marketing/Winning Posts from competitors Linkedin.txt (post 14, lines 543-595), hype and gamified CTA removed"
+    expected_verdict: pass
+    dimensions: [hook-shape, personal-stake, specificity-proof, cta-target-tone]
+    why: "Concrete personal moment as hook, numbered workflow, one soft link CTA; the corpus craft with the rejected mechanics stripped."
+    text: |
+      I woke up to this email today: "Your agent found 126 new leads."
+
+      126 people who match our ICP and showed a buying signal in the last few days.
+
+      Six months ago we built lists like this by hand. It took a full day, and half the contacts were cold.
+
+      What changed: we stopped scraping lists and started watching signals.
+
+      1. Define the ICP once
+      2. Pick the signals that matter — job changes, sales hiring, competitor engagement
+      3. Let the agent watch daily
+      4. Write to people who are already in the conversation
+
+      The difference is intent. You are not interrupting strangers; you are joining a conversation they already started.
+
+      We wrote up the exact setup here: [link]
+
+  - id: en-gp-02
+    provenance: adapted-positive
+    source: "docs/marketing/Winning Posts from competitors Linkedin.txt (post 11, lines 403-435), Unicode-bold styling and giveaway framing normalised"
+    expected_verdict: pass
+    dimensions: [structure, specificity-proof, cta-target-tone]
+    why: "Builder post with three concrete components, disciplined bullets, direct link CTA — the corpus's cleanest CTA class."
+    text: |
+      I built three sales agents that cover our whole outbound workflow.
+
+      A research agent: analyses any prospect in about a minute — company context, pain points, an angle worth using.
+
+      A qualification agent: scores leads on fit and intent and tells you where to focus.
+
+      A follow-up agent: preps every call, drafts the proposal, and makes sure nothing slips.
+
+      Most B2B teams still do all three steps by hand. That was fine in 2019.
+
+      The full setup, including the prompts, is here: [link]
+
+  - id: en-gp-03
+    provenance: adapted-positive
+    source: "docs/marketing/The-LinkedIn-High-Intent-Outreach-System...md (lines 120-150), DM sequence kept nearly verbatim"
+    expected_verdict: pass
+    dimensions: [rhythm, cta-target-tone, specificity-proof]
+    why: "Short-copy register reference: 23-word opener, no pitch, one question; specificity carried by word count itself."
+    text: |
+      Hey [Name], quick question — what's your biggest challenge with reply rates right now?
+
+      (That's it. 14 words. No pitch. If they answer, you're in a conversation, and the next message earns its 27 words.)
+
+  - id: en-gp-04
+    provenance: adapted-positive
+    source: "docs/marketing/The-LinkedIn-High-Intent-Outreach-System...md (lines 24-48), recomposed as carousel copy"
+    expected_verdict: pass
+    dimensions: [structure, hook-shape, specificity-proof]
+    why: "Seven-beat problem/contrast/reveal arc, one idea per slide, numbers doing the persuading."
+    text: |
+      S1: Cold LinkedIn outreach in 2026, honestly.
+      S2: 1-2% response rate.
+      S3: 100 messages to book one meeting.
+      S4: The fix isn't better copy. It's better timing.
+      S5: Warm, signal-based outreach: 25-40% response.
+      S6: 10 messages to book one meeting.
+      S7: The difference is intent — write to people already in the conversation.
+
+  - id: en-gp-05
+    provenance: adapted-positive
+    source: "docs/marketing/Gojiberry's 7 Figure GTM Playbook.txt (lines 43-45, 143-145), interview answer post-shaped"
+    expected_verdict: pass
+    dimensions: [personal-stake, rhythm, hook-shape]
+    why: "First-person practice statement, concrete schedule, admits difficulty — human-voice reference item."
+    text: |
+      I write one post per day, by hand. Never in batches.
+
+      I've tried sitting down to write four in one session. You don't get four good ones. You might get one.
+
+      My split is boring: 8am to 2pm is content and replying to every comment. 2pm to 8pm is calls.
+
+      Creating one genuinely good post per day is hard. That's the whole reason it works.
+
+  # ---------- deliberate negatives ----------
+  - id: en-gn-01
+    provenance: deliberate-negative
+    source: "authored: generic AI-slop opener + abstract benefit stack"
+    expected_verdict: fail
+    dimensions: [hook-shape, banned-patterns, specificity-proof]
+    why: "Throat-clearing scene-set opener, zero concrete facts, buzzword chain — the canonical slop shape."
+    text: |
+      In today's fast-paced digital landscape, businesses must leverage cutting-edge AI to unlock unprecedented growth and stay ahead of the curve. Let's delve into how intelligent automation is revolutionizing the way forward-thinking companies approach lead generation in an ever-evolving marketplace.
+
+  - id: en-gn-02
+    provenance: deliberate-negative
+    source: "authored: bullet-vagueness pattern (§14.2 layer 2 target)"
+    expected_verdict: fail
+    dimensions: [structure, specificity-proof]
+    why: "High bullet density, zero information per bullet — bullets dressed as insight."
+    text: |
+      Here's what AI can do for your agency:
+
+      → Boost efficiency
+      → Drive growth
+      → Unlock success
+      → Maximize ROI
+      → Streamline workflows
+      → Elevate your brand
+
+      Ready to transform your business? Let's connect!
+
+  - id: en-gn-03
+    provenance: deliberate-negative
+    source: "docs/marketing/Winning Posts from competitors Linkedin.txt (CTA mechanics from posts 5, 13, 15) — the corpus pattern the project explicitly rejects"
+    expected_verdict: fail
+    dimensions: [cta-target-tone, banned-patterns]
+    why: "Gamified hard-CTA stack (comment-gate + repost bait + connection demand) — corpus-native and still a fail under our rules."
+    text: |
+      Want the full system?
+
+      Comment "SYSTEM" below 👇
+      Like + repost for priority access ♻️
+      And make sure we're connected, otherwise I can't send it!
+
+      P.S. Repost and you're first in line.
+
+  - id: en-gn-04
+    provenance: deliberate-negative
+    source: "docs/marketing/Winning Posts from competitors Linkedin.txt (line 25, near-verbatim)"
+    expected_verdict: fail
+    dimensions: [specificity-proof]
+    why: "Proof claim with no number, no baseline, no owner — 'well above average' is vagueness wearing a metric's clothes."
+    text: |
+      We rebuilt our whole outreach process around AI last quarter.
+
+      Our average reply rate is now well above average! 🔥 The results speak for themselves.
+
+      This changes everything for agencies.
+
+  - id: en-gn-05
+    provenance: deliberate-negative
+    source: "authored: em-dash/staccato AI-rhythm overload"
+    expected_verdict: fail
+    dimensions: [rhythm, banned-patterns]
+    why: "Uniform one-line paragraphs, em-dash every sentence, contrast-pair tic repeated three times — machine rhythm."
+    text: |
+      Outreach isn't dead — it's evolving.
+
+      It's not about volume — it's about precision.
+
+      It's not about tools — it's about strategy.
+
+      The old way? Broken.
+
+      The new way? Intelligent.
+
+      The future? Already here.
+
+  - id: en-gn-06
+    provenance: deliberate-negative
+    source: "authored: curiosity-gap tease hook"
+    expected_verdict: fail
+    dimensions: [hook-shape]
+    why: "Withholds the substance to farm the click — 'what nobody tells you' cadence with no observation in it."
+    text: |
+      Here's what nobody tells you about lead generation...
+
+      Most agencies are making one critical mistake without even realizing it.
+
+      And it's costing them more than they think.
+
+      Want to know what it is? Keep reading. Because what I'm about to share will change how you think about outreach forever.
+
+  - id: en-gn-07
+    provenance: deliberate-negative
+    source: "authored: corporate we-speak, no author in the text"
+    expected_verdict: fail
+    dimensions: [personal-stake, rhythm]
+    why: "Press-release register on a personal channel — nobody home behind the words."
+    text: |
+      Our organization is pleased to announce the expansion of our AI-driven lead generation capabilities. Through the deployment of advanced automation solutions, we enable enterprises to optimize their customer acquisition funnels and realize measurable operational efficiencies. We remain committed to delivering best-in-class outcomes for our valued partners.
+
+  - id: en-gn-08
+    provenance: deliberate-negative
+    source: "docs/marketing/Winning Posts from competitors Linkedin.txt (posts 14 and 15, lines 543 and 599) — documented template recurrence"
+    expected_verdict: fail
+    dimensions: [banned-patterns, hook-shape]
+    why: "Near-identical opener to a recent same-platform artifact — the house-tic case the cross-pack recurrence check exists for; the judge sees the recurrence context and must not wave it through."
+    text: |
+      BYE BYE manual outreach.
+      AI + LinkedIn just ended the grind ↓
+
+      Most people use AI to write their posts.
+      That's just 1% of what it can do.
+
+      [judge context note: an artifact with this exact opener shipped from this account earlier in the rolling window]
+
+  # ---------- borderlines ----------
+  - id: en-bl-01
+    provenance: borderline
+    source: "authored: strong post carrying corpus-native hype markers"
+    expected_verdict: fail
+    dimensions: [banned-patterns, specificity-proof]
+    why: "Everything is specific and structured, but the rocket emoji + 'insane results' hype register is the exact corpus residue we reject; expected fail, and human-vs-judge disagreement here is informative for threshold placement."
+    text: |
+      We sent 8,900 emails to people who had engaged with our content in the last 6 months.
+
+      Results: 101 replies, 60 resource requests, 5 demos booked, 9 self-serve signups. 🚀
+
+      Insane results from an audience most teams ignore. Past engagement is the most underrated lead source there is.
+
+  - id: en-bl-02
+    provenance: borderline
+    source: "adapted from docs/marketing/Winning Posts... (line 411)"
+    expected_verdict: pass
+    dimensions: [hook-shape]
+    why: "Aggressive contrast hook, but it is a direct, checkable observation rather than a tease — should pass; a judge failing this is over-strict on tone."
+    text: |
+      Most B2B teams are still doing outbound like it's 2019.
+
+      Manual research. Gut-feel qualification. Improvised calls.
+
+      Meanwhile the teams they compete with have automated all three steps and spend their time in conversations instead.
+
+      The gap isn't talent. It's process. And it compounds monthly.
+
+  - id: en-bl-03
+    provenance: borderline
+    source: "authored: two competing CTAs"
+    expected_verdict: fail
+    dimensions: [cta-target-tone]
+    why: "Both CTAs are individually soft and allowed-class, but two targets in one asset splits the ask — rubric requires one CTA; borderline because each half alone would pass."
+    text: |
+      We put our whole signal-based outreach setup into a step-by-step guide.
+
+      If you want the guide, it's linked below.
+
+      And if you'd rather see it live, book a 30-minute walkthrough here — or just follow us for the next breakdown.
+
+  - id: en-bl-04
+    provenance: borderline
+    source: "authored: list-heavy but disciplined"
+    expected_verdict: pass
+    dimensions: [structure, specificity-proof]
+    why: "Bullet density near the top of the band, but every bullet carries a concrete noun and number — tests that layer 2's density heuristic defers to the judge instead of auto-failing."
+    text: |
+      What our agent checked before writing a single message this morning:
+
+      → 214 profiles against the ICP definition
+      → 31 job changes in the last 14 days
+      → 12 companies actively hiring SDRs
+      → 9 people who commented on a competitor's pricing post
+      → 3 accounts that visited our site twice this week
+
+      Out of all that: 11 messages sent. That ratio is the whole point.
+
+  - id: en-bl-05
+    provenance: borderline
+    source: "authored: guarantee-shaped promise in otherwise clean copy"
+    expected_verdict: fail
+    dimensions: [specificity-proof, cta-target-tone]
+    why: "Reads specific and confident, but 'guaranteed' converts a process description into an outcome promise — voice-level smell even before the claim gate sees it; borderline by design."
+    text: |
+      Follow this for one week: set up the signal filters on Monday, sync the leads Tuesday, and spend the rest of the week writing 20-word openers to people already showing intent.
+
+      You'll book your first meeting within 7 days. Guaranteed.

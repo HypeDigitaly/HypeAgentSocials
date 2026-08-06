@@ -1,0 +1,94 @@
+# =============================================================================
+# CLAIM LEDGER — seeded honestly empty (Phase 0)
+# =============================================================================
+# Governing plan: docs/architecture/ARCHITECTURE_PLAN.md
+#   - §6.3 (F-H row): "Claim ledger. Per entry: text per language, claim
+#     type, provenance, evidence pointer, valid-from and valid-until, usage
+#     scope." Typed database; "empty ≠ unreadable".
+#   - §6.7: "The claim ledger is what may be said; it is brand truth. The
+#     claim gate is what was actually said." The two halves must not be
+#     merged — this file is the LEDGER half only.
+#   - §6.5 degrade condition 4: "The claim ledger could not be read at all —
+#     distinct from being empty. Unknown is not empty."
+#   - §17.2 Phase 0: "The claim ledger seeded with whatever is genuinely
+#     approved — an honestly empty ledger is a valid Phase-0 outcome; an
+#     unreadable one is not."
+#
+# LOCATION IS A DEFAULT PENDING OD-9 (§16.2, carried as a recommendation,
+# not a lock — see also plan summary point 5):
+#   OD-9 recommends (c) a SPLIT: the ledger primary in a typed knowledge-base
+#   (Notion) database with a config pointer, "editable by a marketing-literate
+#   operator without touching config files"; hard excludes are the one
+#   exception and live in both. This file is therefore a DEFAULT, config-side
+#   seed location, valid until the operator confirms OD-9 at Stage 5
+#   ("cheap to change before Phase 2, expensive after"). If the operator
+#   confirms the Notion-primary split, the §10.3 claim-ledger pointer knob
+#   points at the Notion database and this file's role ends at Phase 0
+#   seeding; if the operator chooses config-only, this file becomes the
+#   ledger itself and the monotonicity rules survive unchanged.
+#
+# FAIL-CLOSED SEMANTICS
+#   - File present, claims: []  -> HONESTLY EMPTY. Valid state (§6.3: empty
+#     ≠ unreadable; §17.2). Consequence, per §6.7 check class 4: "Empty
+#     ledger means all outcome claims blocked and generation steered to
+#     teaching framing." That is the designed behaviour, not a failure.
+#   - File missing or unreadable -> degrade condition 4 of §6.5 fires:
+#     research-only output, no brand content, and this condition "cannot be
+#     overridden by an operator even interactively" (§6.5).
+#
+# HOW ENTRIES ARE ADDED (§6.4): an operator introducing a new commercial
+# fact "is directed to write it into the claim ledger with provenance,
+# evidence pointer and validity window — the same path with the same audit
+# trail as any other fact. The friction is the point."
+# The corpus never populates the ledger (§6.10 rule 1: "the claim ledger is
+# never populated from it"), and the site "may INVALIDATE, never ADD" (§6.4):
+# a site contradiction QUARANTINES the entry rather than editing it.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# RECORD SCHEMA — template for one ledger entry, commented out until the
+# first genuinely approved claim exists. Field set is exactly F-H (§6.3)
+# plus the per-entry states other sections require of an entry.
+# -----------------------------------------------------------------------------
+# claims:
+#   - id: ""                      # stable entry identifier — consumed by the
+#                                 # fact-usage trace (§6.6a/§6.6: "claim-ledger
+#                                 # entry identifiers that this specific topic
+#                                 # pack actually consumed")
+#     text:                       # F-H: "text per language" — the approved
+#       en: ""                    #   claim wording, per language; never a
+#       cs: ""                    #   machine translation of the other language
+#     claim_type: ""              # F-H: "claim type". Vocabulary aligns with
+#                                 # the §6.7 check classes that consume the
+#                                 # ledger (e.g. numeric, currency/price,
+#                                 # outcome/result, superlative, capability,
+#                                 # temporal, comparative, endorsement)
+#     provenance: ""              # F-H: "provenance" — where this claim comes
+#                                 # from, entered with the entry (§6.4)
+#     evidence_pointer: ""        # F-H: "evidence pointer" — link/reference to
+#                                 # the evidence substantiating the claim
+#     valid_from: ""              # F-H: "valid-from" (ISO date)
+#     valid_until: ""             # F-H: "valid-until" (ISO date). §6.6: claims
+#                                 # expiring within 30 days are listed in the
+#                                 # digest by the claim-ledger expiry sweep —
+#                                 # "otherwise proof silently vanishes from
+#                                 # content one day and nobody knows why the
+#                                 # posts got vaguer"
+#     usage_scope: ""             # F-H: "usage scope" — where/how the claim
+#                                 # may be used
+#     confidence: ""              # §6.5 PARTIAL row: proof claims at PARTIAL
+#                                 # are blocked "unless that individual ledger
+#                                 # entry is itself at full confidence" — so
+#                                 # confidence is a per-entry state
+#     status: ""                  # active | quarantined | expired.
+#                                 # §6.4 F-H row: a site contradiction
+#                                 # "quarantines that entry" (red-flag path);
+#                                 # quarantined entries are unusable until a
+#                                 # human resolves the conflict
+# -----------------------------------------------------------------------------
+
+# Honestly empty (§17.2 Phase 0): zero claims are genuinely approved as of
+# seeding, 2026-08-06. Empty means "no approved claims — outcome/proof claims
+# blocked, teaching framing on" (§6.7 class 4). It does NOT mean the ledger
+# is off, and it is categorically different from unreadable (§6.5 cond. 4).
+claims: []

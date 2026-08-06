@@ -1,0 +1,335 @@
+# Czech judge golden set — Phase 0 calibration artefact
+# Governing plan sections: ARCHITECTURE_PLAN.md §14.2 (judge calibration), §14.4
+# (the eleven Czech dimensions — five inherited + five Czech-specific + one Czech
+# override), §17.2 Phase 0, rulings R3-M5 and OD-20.
+#
+# THE RUBRIC IS A HYPOTHESIS, NOT A LAW (R3-M5): the Czech exemplar corpus does not
+# exist until Phase 0 builds it, so the human-vs-judge agreement data from THIS SET
+# decides which dimensions actually discriminate Czech voice for this brand.
+# Dimensions that do not discriminate are down-weighted or merged, logged (OD-20).
+#
+# Negatives are seeded from machine-translated English marketing copy (plan §3.4,
+# §17.2): translationese is precisely the failure mode the rubric exists to catch.
+# Each negative cites its English source sentence.
+#
+# Dimension keys (§14.4):
+#   d1  hook-shape               (inherited; fail = transplanted English hook rhythm)
+#   d2  specificity-proof        (inherited)
+#   d3  structure-formatting     (inherited)
+#   d4  cta-target-tone          (inherited)
+#   d5  banned-patterns          (inherited; engine/theme lexicons + recurrence)
+#   d6  calque-avoidance         (Czech-specific; blocklist with native alternatives)
+#   d7  register-vykani          (Czech-specific; vykání default, flips fail both ways)
+#   d8  code-switching           (Czech-specific; allowlist is a PERMISSION list)
+#   d9  czech-structural-tells   (Czech-specific; openers, hedge stacking)
+#   d10 sentence-rhythm-cs-band  (Czech-specific; band from Czech corpus only)
+#   d11 human-voice-weighting    (Czech override; a weight, not an extra test)
+#
+# Coverage note: all eleven dimensions are exercised by at least one item below.
+# d5 is only PARTIALLY testable in Phase 0 — the engine/theme seed lexicons are a
+# separate Phase-0 configuration deliverable; cs-gn-12 exercises the generic pattern
+# class and must be re-checked against the seeded lexicon once it exists.
+#
+# STATUS: DRAFT — adapted positives are authored Czech drafts (no real Czech corpus
+# exists yet) and need operator approval; borderlines are authored stand-ins to be
+# replaced by real pilot-run drafts as they appear (§14.2), each replacement logged.
+
+meta:
+  language: cs
+  version: 0.1-draft
+  item_count: 22
+  authored: 2026-08-06
+  needs_operator_approval:
+    - cs-gp-01
+    - cs-gp-02
+    - cs-gp-03
+    - cs-gp-04
+    - cs-gp-05
+  dimension_coverage:
+    d1: [cs-gn-01, cs-gn-10, cs-gp-01]
+    d2: [cs-gn-07, cs-gp-01, cs-bl-05]
+    d3: [cs-gn-11, cs-gp-04]
+    d4: [cs-gn-05, cs-gp-02, cs-bl-05]
+    d5: [cs-gn-12]   # partial until seed lexicons exist — see coverage note
+    d6: [cs-gn-02, cs-gn-03, cs-gn-04, cs-bl-03]
+    d7: [cs-gn-06, cs-bl-02]
+    d8: [cs-gp-05, cs-gn-03, cs-bl-01]
+    d9: [cs-gn-02, cs-gn-08, cs-gn-09]
+    d10: [cs-gn-09, cs-bl-04, cs-gp-03]
+    d11: [cs-gn-07, cs-gn-08, cs-gp-01]
+  dimensions_not_covered: []
+
+items:
+  # ---------- adapted positives (authored Czech drafts, need approval) ----------
+  - id: cs-gp-01
+    provenance: adapted-positive
+    source: "authored Czech draft CS-LI-D1 (calibration/cs/structural_corpus.md), adapted from EN exemplar EN-LI-07"
+    expected_verdict: pass
+    dimensions: [d1, d2, d11]
+    why: "Problémový hák bez přeneseného anglického rytmu, konkrétní osobní moment, střízlivý tón — referenční lidský hlas."
+    text: |
+      Dnes ráno mi přišel e-mail: „Váš agent našel 126 nových leadů."
+
+      126 lidí, kteří odpovídají našemu ICP a v posledních dnech projevili zájem o téma, které řešíme.
+
+      Ještě před půl rokem jsme takový seznam dávali dohromady ručně. Trvalo to celý den a půlka kontaktů byla studená.
+
+      Co se změnilo: místo studených seznamů sledujeme signály.
+
+      → kdo komentuje posty o cold outreachi
+      → kdo nastoupil do nové role
+      → kdo právě nabírá obchodníky
+
+      Rozdíl není v nástroji, ale v načasování. Nepíšete cizím lidem — přidáváte se k rozhovoru, který už začali.
+
+      Zajímá vás, jak si podobné sledování signálů nastavit? Napište mi, pošlu vám náš postup.
+
+  - id: cs-gp-02
+    provenance: adapted-positive
+    source: "authored Czech draft; soft-CTA phrasing per B4 §6 phrase bank"
+    expected_verdict: pass
+    dimensions: [d4, d7]
+    why: "Pozvánka s vykáním, CTA třídy webinář v měkkém tvaru „Rádi bychom vás pozvali“, bez umělé urgence."
+    text: |
+      Za poslední rok jsme nastavovali outreach desítkám agentur. Nejčastější problém nebyl v textech, ale v tom, komu se vůbec píše.
+
+      Ve čtvrtek to projdeme naživo: jak poznat, že je firma připravená nakupovat, dřív než osloví konkurence.
+
+      Rádi bychom vás pozvali na webinář „Jak získávat klienty na autopilota pomocí AI". Je zdarma, trvá hodinu a nahrávku pošleme všem přihlášeným.
+
+  - id: cs-gp-03
+    provenance: adapted-positive
+    source: "authored Czech draft CS-SF-D1 (calibration/cs/structural_corpus.md), CS-B voiceover script"
+    expected_verdict: pass
+    dimensions: [d10, d3]
+    why: "Mluvený rytmus: krátké věty pro voiceover, delší v psaném doprovodu — přirozená česká distribuce, ne anglické pásmo."
+    text: |
+      Proč vám na cold outreach nikdo neodpovídá? Průměr je dnes kolem dvou procent. Sto zpráv, dvě odpovědi. Problém většinou není text. Je to načasování. Lidé odpovídají, když problém řeší právě teď. Nová role. Nábor obchodníků. Aktivita u konkurence. Když oslovíte podle signálu, přidáváte se k rozhovoru, který už běží. Postup najdete v popisku.
+
+  - id: cs-gp-04
+    provenance: adapted-positive
+    source: "authored Czech draft CS-CA-D1 (calibration/cs/structural_corpus.md), 9-slide carousel"
+    expected_verdict: pass
+    dimensions: [d3, d2]
+    why: "Jedna myšlenka na slide, oblouk problém → zlom → postup → CTA, čísla nesou důkaz."
+    text: |
+      S1: Proč vám na cold outreach nikdo neodpovídá
+      S2: Průměrná odpověď na studenou zprávu: ~2 %
+      S3: Sto zpráv. Dvě odpovědi. Jedna schůzka.
+      S4: Problém není text zprávy. Je to načasování.
+      S5: Lidé odpovídají, když problém řeší právě teď.
+      S6: Signály: nová role · nábor obchodníků · aktivita u konkurence
+      S7: Oslovení podle signálu = přidáváte se k rozhovoru, který už běží.
+      S8: Výsledek: méně zpráv, více odpovědí, žádný spam.
+      S9: Chcete si to vyzkoušet zdarma? Odkaz v komentáři.
+
+  - id: cs-gp-05
+    provenance: adapted-positive
+    source: "authored Czech draft; positive-direction test of the code-switching allowlist"
+    expected_verdict: pass
+    dimensions: [d8]
+    why: "Hustý, ale legitimní tech registr: outreach, pipeline, ICP, cold email, lead magnet jsou povolené kategorie/nástroje — judge je NESMÍ flagovat."
+    text: |
+      Nastavovali jsme klientovi nový outreach stack: definice ICP, dva lead magnety a sekvence cold emailů navázané na signály z LinkedInu.
+
+      Pipeline se začala plnit třetí týden. Ne proto, že by texty byly geniální, ale protože přestali psát lidem, kteří zrovna nic neřeší.
+
+      Kdybyste si chtěli projít, jak to máte nastavené vy, půl hodiny nad vaší pipeline věnujeme rádi.
+
+  # ---------- deliberate negatives (machine-translated translationese) ----------
+  - id: cs-gn-01
+    provenance: deliberate-negative
+    source: "machine-translated from: 'Claude Cowork just killed manual prospecting. And I'm never going back.' (Winning Posts..., lines 39/44)"
+    expected_verdict: fail
+    dimensions: [d1, d9]
+    why: "Přenesený anglický rytmus háku („zabil“, „nikdy se nevrátím“) — doslovný překlad hype kadence, česky zní cize."
+    text: |
+      AI právě zabila manuální prospecting. A já se už nikdy nevrátím zpět.
+
+      Předtím jsem mohl strávit hodiny psaním personalizovaných zpráv. Teď? Můj AI stack to dělá lépe než já.
+
+      Žádné další kopírované šablony. Žádný další „ahoj {{jméno}}" spam. Žádné další vyhoření po 47. zprávě.
+
+  - id: cs-gn-02
+    provenance: deliberate-negative
+    source: "machine-translated from: 'In today's fast-paced world, AI could potentially revolutionize your outreach.' (generic EN marketing register, cf. B4 §5 tell 1)"
+    expected_verdict: fail
+    dimensions: [d9, d6]
+    why: "„V dnešní rychlé době“ = přímý český analog zakázaného openeru; hedge stacking („je důležité zmínit… může… potenciálně“); „revolucionizovat“ z blocklistu — nativní alternativa: „změní“ / „ulehčí“."
+    text: |
+      V dnešní rychlé době je důležité zmínit, že umělá inteligence může potenciálně revolucionizovat váš přístup k oslovování klientů. Je třeba poznamenat, že tato technologie by mohla případně přinést určité výhody pro vaše podnikání.
+
+  - id: cs-gn-03
+    provenance: deliberate-negative
+    source: "machine-translated from: 'Unlock the full potential of your data and leverage AI for seamless automation.' (EN marketing register, cf. B4 §5 calques 3-5)"
+    expected_verdict: fail
+    dimensions: [d6, d8]
+    why: "Trojitý kalk: „odemkněte potenciál“ (nativně: „využijte“), „levergujte“ (není české slovo; nativně: „využijte“), „bezešvou“ (nativně: „jednoduchou / bez komplikací“); anglicismus ve slovesné pozici je přesně to, co allowlist blokuje."
+    text: |
+      Odemkněte plný potenciál svých dat a levergujte umělou inteligenci pro bezešvou automatizaci vašeho byznysu. Naše řešení vám umožní škálovat bez limitů.
+
+  - id: cs-gn-04
+    provenance: deliberate-negative
+    source: "machine-translated from: 'This is an absolute game-changer for every agency.' (EN marketing register, cf. B4 §5 calque 2)"
+    expected_verdict: fail
+    dimensions: [d6]
+    why: "„Game-changer / mění hru“ nemá českou oporu — sportovní metafora z anglosaského prostředí; nativní alternativa: „změní způsob, jak…“ / „bude mít vliv“."
+    text: |
+      Tohle je absolutní game-changer pro každou agenturu. AI agenti kompletně mění hru v lead generation a kdo nenaskočí teď, zůstane pozadu.
+
+  - id: cs-gn-05
+    provenance: deliberate-negative
+    source: "machine-translated from CTA mechanics: 'Comment CLAUDE and I'll send you access. Repost for priority. Make sure we're connected!' (Winning Posts..., lines 482, 165-168)"
+    expected_verdict: fail
+    dimensions: [d4]
+    why: "Gamifikované tvrdé CTA (comment-gate + repost bait + podmínka propojení) — zakázaná třída CTA; česky navíc působí dvojnásob lacině (B4 §6 Hard CTAs to Avoid)."
+    text: |
+      Chcete kompletní systém?
+
+      Komentujte „AI" a pošlu vám ho 👇
+      Přesdílejte tento post pro prioritní přístup ♻️
+      A nezapomeňte si mě přidat, jinak vám ho nemůžu poslat!
+
+  - id: cs-gn-06
+    provenance: deliberate-negative
+    source: "authored: mid-asset register flip (vykání → tykání), pattern per B4 §5 ('Chceme ti nabídnout…' flip)"
+    expected_verdict: fail
+    dimensions: [d7]
+    why: "Začíná vykáním, končí tykáním — flip registru uprostřed assetu je fail v obou směrech (D-26)."
+    text: |
+      Rádi bychom vás pozvali na ukázku naší platformy pro automatizovaný outreach. Připravili jsme pro vás krátkou prezentaci s konkrétními výsledky našich klientů.
+
+      Tak neváhej a napiš mi do zpráv, ať ti pošlu termíny! Uvidíš, že to bude stát za to.
+
+  - id: cs-gn-07
+    provenance: deliberate-negative
+    source: "machine-translated from: 'Our average reply rate is well above average! 🔥 The results speak for themselves.' (Winning Posts..., line 25)"
+    expected_verdict: fail
+    dimensions: [d2, d11]
+    why: "Důkaz bez čísla, bez základny, bez vlastníka + emoji hype — česká B2B publika tohle čtou jako AI/marketing šum dvojnásob citlivě (d11 váha)."
+    text: |
+      Kompletně jsme přestavěli náš outreach proces kolem AI.
+
+      Naše průměrná míra odpovědí je nyní vysoko nad průměrem! 🔥 Výsledky mluví samy za sebe.
+
+      Tohle všechno mění pro každou agenturu.
+
+  - id: cs-gn-08
+    provenance: deliberate-negative
+    source: "authored: fake-enthusiasm caps pattern per B4 §5 structural tell 3 ('ZMĚŇTE SVOU FIRMU! Jsme tady pro VÁS!')"
+    expected_verdict: fail
+    dimensions: [d11, d9]
+    why: "Nadšení kapitálkami a vykřičníky místo konkrétnosti — přesný opak českého tlumeného registru; d11 (vyšší váha lidského hlasu) tady musí kousnout."
+    text: |
+      ZMĚŇTE SVOU FIRMU JEŠTĚ DNES! Jsme tady pro VÁS!!!
+
+      Naše AI řešení je PŘESNĚ to, co váš byznys potřebuje! Neváhejte a KONTAKTUJTE nás hned teď! Každá sekunda se počítá!
+
+  - id: cs-gn-09
+    provenance: deliberate-negative
+    source: "authored: buzzword repetition + uniform machine rhythm per B4 §5 structural tells 4-5"
+    expected_verdict: fail
+    dimensions: [d10, d9]
+    why: "Monotónní strojový rytmus (čtyři věty identické stavby) a opakování „automatizace“ v každé větě — česky se podmět a sloveso přirozeně střídají."
+    text: |
+      Automatizace je klíčová. Automatizace šetří čas. Automatizace zvyšuje výnosy. Automatizace je budoucnost vašeho podnikání. Začněte s automatizací ještě dnes.
+
+  - id: cs-gn-10
+    provenance: deliberate-negative
+    source: "machine-translated from: 'R.I.P generic cold emails. GojiberryAI trained Claude on millions of outbound interactions.' (Winning Posts..., line 442)"
+    expected_verdict: fail
+    dimensions: [d1, d2]
+    why: "„R.I.P.“ hák je přenesená anglická kadence; „miliony interakcí“ je neatributovatelné velké číslo — vágnost převlečená za data."
+    text: |
+      R.I.P. generickým cold emailům. Vytrénovali jsme AI na milionech outbound interakcí.
+
+      Teď překonává celé outreach týmy těch nejlepších lídrů a revenue organizací v mé síti.
+
+  - id: cs-gn-11
+    provenance: deliberate-negative
+    source: "machine-translated from: '→ Boost efficiency → Drive growth → Take it to the next level' (EN bullet-vagueness register)"
+    expected_verdict: fail
+    dimensions: [d3, d6]
+    why: "Vágní odrážky bez obsahu + kalk „posunout na další level“; hustota odrážek vysoká, informace nulová."
+    text: |
+      Co pro vás AI udělá:
+
+      → Zvýší efektivitu
+      → Nastartuje růst
+      → Posune vás na další level
+      → Maximalizuje váš potenciál
+
+      Jste připraveni transformovat svůj byznys?
+
+  - id: cs-gn-12
+    provenance: deliberate-negative
+    source: "authored: generic banned-pattern class (rhetorical-question opener + hype emoji) — PARTIAL d5 until seed lexicons exist"
+    expected_verdict: fail
+    dimensions: [d5, d1]
+    why: "Řečnická otázka jako opener + „Pojďme se na to podívat! 🚀“ — očekávaný obsah seed lexikonu; položka se po nasazení lexikonu přemapuje na konkrétní zakázané vzory."
+    text: |
+      Přemýšleli jste někdy, jak by umělá inteligence mohla transformovat vaše podnikání? 🚀
+
+      Pojďme se na to společně podívat! V tomto postu vám ukážu 5 způsobů, které změní všechno.
+
+  # ---------- borderlines (authored stand-ins, replace with pilot-run drafts) ----------
+  - id: cs-bl-01
+    provenance: borderline
+    source: "authored: one English-rooted verb inside otherwise excellent Czech"
+    expected_verdict: fail
+    dimensions: [d8]
+    why: "„Nascalovat“ je anglicismus ve slovesné pozici (skutečný slop dle allowlistu), i když zbytek textu je vzorový — hraniční, protože jediné slovo rozhoduje; neshoda člověk/judge zde kalibruje přísnost d8."
+    text: |
+      Klient měl dva obchodníky a plný kalendář schůzek z doporučení. Problém přišel ve chvíli, kdy doporučení přestala stačit.
+
+      Nastavili jsme sledování signálů a za měsíc měli v pipeline 40 relevantních firem. Teď to potřebují nascalovat na další trhy.
+
+  - id: cs-bl-02
+    provenance: borderline
+    source: "authored: consistent tykání, peer-community styled"
+    expected_verdict: fail
+    dimensions: [d7]
+    why: "Tykání je konzistentní (žádný flip), ale default konfigurace je vykání — fail podle výchozího pravidla, pass pouze v tématu s deklarovaným peer-community kontextem (D-26). Hraniční záměrně: měří, zda judge čte konfigurační kontext."
+    text: |
+      Posíláš pořád stejnou šablonu a divíš se, že ti nikdo neodpovídá?
+
+      Zkus to otočit: napiš jenom lidem, kteří zrovna něco řeší. Nová role, nábor obchodníků, komentář pod postem konkurence.
+
+      Deset zpráv týdně s důvodem porazí sto zpráv bez důvodu.
+
+  - id: cs-bl-03
+    provenance: borderline
+    source: "authored: single 'zefektivnit' in natural copy (B4 §5 calque 6 — real word, overuse is the tell)"
+    expected_verdict: pass
+    dimensions: [d6]
+    why: "„Zefektivnit“ je skutečné české slovo; blocklist míří na šablonovité nadužívání, ne na jediný přirozený výskyt — judge, který tohle failne, je přehnaně přísný na d6."
+    text: |
+      Fakturaci jsme zefektivnili už loni. Letos přišel na řadu obchod: místo ručního dohledávání kontaktů si obchodníci ráno otevřou seznam firem, které za posledních 48 hodin projevily zájem o naše téma.
+
+      První měsíc: 14 schůzek, z toho 9 s firmami, o kterých jsme předtím nevěděli.
+
+  - id: cs-bl-04
+    provenance: borderline
+    source: "authored: long natural Czech sentences (d10 anti-inheritance test)"
+    expected_verdict: pass
+    dimensions: [d10]
+    why: "Věty jsou dlouhé podle anglického pásma, ale přirozené podle českého — položka existuje proto, aby se prokázalo, že české pásmo NENÍ zděděné z angličtiny; fail zde = špatně kalibrovaný band."
+    text: |
+      Když jsme před rokem začínali s automatizací outreache, největší obavou nebylo, jestli technologie zvládne napsat slušnou zprávu, ale jestli poznáme, komu ji vůbec poslat, protože seznam kontaktů, který vypadá dobře v tabulce, se od seznamu lidí, kteří zrovna něco řeší, liší víc, než jsme si mysleli.
+
+      Po roce máme jednoduchou odpověď: rozhoduje načasování, a to se z tabulky vyčíst nedá.
+
+  - id: cs-bl-05
+    provenance: borderline
+    source: "authored: strong post with no CTA at all"
+    expected_verdict: pass
+    dimensions: [d4, d2]
+    why: "Žádné CTA není totéž co špatné CTA — d4 měří soulad cíle a tónu existujícího CTA; čistě edukativní post bez výzvy má projít (třídu CTA vymáhá spin gate, ne voice judge). Hraniční: měří, zda judge nevynucuje CTA tam, kde nemá."
+    text: |
+      Tři věci, které jsme se naučili za 50 outreach kampaní:
+
+      1. Zpráva pod 30 slov dostane odpověď častěji než dokonalá zpráva o třech odstavcích.
+      2. Důvod oslovení („nabíráte obchodníky") funguje. Odkaz na akci („viděl jsem váš like") action-level personalizace lidi odrazuje.
+      3. Follow-up po třech dnech zdvojnásobí počet odpovědí. Follow-up po hodině je spam.
+
+      Nic z toho není o nástrojích. Všechno je to o respektu k času druhé strany.

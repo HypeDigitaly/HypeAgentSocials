@@ -1,0 +1,32 @@
+# FFmpeg version pin — OD-10 deliverable (ARCHITECTURE_PLAN.md §17.2 Phase 0)
+# Written 2026-08-06. The assembly engine (Phase 3) must refuse to run against
+# an FFmpeg whose version string does not match this pin; upgrading the pin is
+# a deliberate, logged change that requires re-running the Czech glyph test
+# (assets/fonts/README.md) before it lands.
+
+ffmpeg:
+  pinned_version: "8.1-full_build-www.gyan.dev"
+  verified_on: "2026-08-06"
+  platform: "Windows 11 Home 10.0.26200 (target platform for scheduled runs)"
+  install_source: "gyan.dev full build (static)"
+  # Capabilities confirmed present in this build that the plan depends on:
+  #   libass, libfreetype, libharfbuzz, libfribidi  -> caption/typography stack (§4.4)
+  #   libx264, libx265                              -> delivery encodes
+  #   loudnorm (libavfilter 11.14.100)              -> loudness mastering (§4.x)
+  #   drawtext                                      -> overlay composition
+  capabilities_verified:
+    - libass
+    - libfreetype
+    - libharfbuzz
+    - libfribidi
+    - libx264
+    - drawtext
+  czech_glyph_test:
+    status: PASS
+    evidence: "assets/fonts/czech_glyph_test.png"
+    date: "2026-08-06"
+    font: "assets/fonts/NotoSans-Variable.ttf (Noto Sans, SIL OFL 1.1)"
+  engine_constraints_discovered:
+    # Found empirically during the glyph test — see assets/fonts/README.md.
+    - "drawtext renders literal \\n as a .notdef box: compose multi-line overlays one drawtext per line, or use libass"
+    - "text inputs must be UTF-8, LF-normalized, no BOM: CRLF renders \\r as a box"
