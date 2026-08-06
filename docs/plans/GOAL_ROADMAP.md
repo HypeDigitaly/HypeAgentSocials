@@ -49,15 +49,24 @@ The goal's completion criterion is the **test run**, and the test run defines th
       sourced from docs/research/NOTION_KB_INVENTORY.md + Notion "Čísla a sliby" (F-H:
       10 approved claims — mirror by *reference*, fetch at run time or snapshot with id).
       (c) Spin mapping + EN copy generation behind a pluggable TextModel provider.
-      **OPEN ITEM (decide at M3 build): which text-model provider the engine calls** —
-      candidates: Kie's LLM endpoints if its API exposes chat models usably; otherwise an
-      Anthropic key the operator supplies; otherwise interactive-mode "operator-supplied
-      text" (Claude-in-the-loop writes spin/copy into a file the run consumes). Drafts-only
-      posture makes all three acceptable for the test.
+      **RESOLVED 2026-08-07 (pre-checked while M2 built): text-model provider.** Kie's
+      official docs expose NO chat/LLM family (the DeepSeek chat endpoint at
+      kieai.erweima.ai is third-party-reported legacy, not in docs.kie.ai — do not build
+      on it). M3 therefore ships a `TextModel` protocol with two providers: (1)
+      `interactive-file` — the run writes a structured request file (topic, brand facts,
+      constraints), the operator/Claude fills the response file, the run consumes it and
+      all deterministic gates still run on the output; this is the finish-line-test path,
+      costs nothing. (2) `openai-compatible-http` — generic config-driven provider
+      (base_url, model, key file path) so any future key drops in without code change.
       (d) Claim gates on copy: deterministic passes (claim-shaped-string detection vs the
       10-row ledger + abstain rules) — the LLM judge halves stay pluggable.
       → tests, commit, **/compact**.
 - [ ] **M4 — Kie image generation, draft tier** (goal-scoped Phase 3).
+      **API surface (verified 2026-08-07 from docs.kie.ai/market/quickstart):** unified
+      jobs API — `POST https://api.kie.ai/api/v1/jobs/createTask`, poll
+      `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=...`, `Authorization: Bearer`;
+      per-model params vary; image routes available include GPT Image 2, Nano Banana 2,
+      Seedream 5, Flux-2. Draft tier = cheapest adequate image route in the registry.
       Model registry (image routes only), routing contract, cost gate (pre-submission,
       per-run cap from config), write-ahead spend ledger + (identity, attempt) idempotency
       (§8.5 — intent row before submission, resolve-by-query on restart, submitted-unknown
