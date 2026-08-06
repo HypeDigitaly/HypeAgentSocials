@@ -1,0 +1,63 @@
+# Model registry — image routes only (M4 seed, goal-scoped Phase 3)
+# ---------------------------------------------------------------------------
+# Authored 2026-08-07. §5.2: the registry names routes, tiers and PRICE
+# SNAPSHOTS (dated — the digest's cost forecast reads these, never hard-coded
+# figures). Video/voice routes are deliberately absent: the W8-7 goal is
+# image generation only. Price snapshots taken 2026-08-07 from kie.ai public
+# pricing pages (credit ≈ $0.005; account balance 10,080 credits ≈ $50).
+#
+# VERIFICATION STATUS: prices verified from public pages; the exact `model`
+# strings for createTask are UNVERIFIED-PENDING-M4 — the M4 builder must
+# confirm each against docs.kie.ai before first submission and update this
+# file (that update is part of M4's definition of done).
+#
+# Router facts that bind M4 (from W8-3 inspection + docs):
+# - createTask: POST https://api.kie.ai/api/v1/jobs/createTask
+# - status:     GET  https://api.kie.ai/api/v1/jobs/recordInfo?taskId=...
+# - NO idempotency key exists on task creation (§8.5: the write-ahead spend
+#   ledger row IS the idempotency mechanism; resolve-by-query on restart).
+# - Task status does NOT name the rendering model -> §5.6 three-state
+#   inference rule (identity-reported / substituted-unknown /
+#   assumed-as-requested); Kie silently falls back on content-review
+#   triggers, so every delivered asset carries the inference state.
+# - People-free composition stays the injected default (R2-M18).
+
+meta:
+  registry_version: 1
+  price_snapshot_date: "2026-08-07"
+  credit_usd: 0.005
+  provider: "kie.ai"
+  create_task_url: "https://api.kie.ai/api/v1/jobs/createTask"
+  record_info_url: "https://api.kie.ai/api/v1/jobs/recordInfo"
+
+routes:
+  - route_id: img-draft-nano-banana
+    tier: draft
+    display: "Nano Banana (Gemini 2.5 Flash Image)"
+    model_string: "google/nano-banana"        # UNVERIFIED-PENDING-M4
+    price_credits: 4
+    price_usd: 0.02
+    notes: "Default draft route — cheapest adequate; strong text rendering claims"
+
+  - route_id: img-draft-seedream
+    tier: draft
+    display: "Seedream 4.0"
+    model_string: "bytedance/seedream-4"      # UNVERIFIED-PENDING-M4
+    price_credits: 3.5
+    price_usd: 0.0175
+    notes: "Fallback draft route (registered fallback needs its own param conformance check, §5.7)"
+
+  - route_id: img-standard-nano-banana-pro
+    tier: standard
+    display: "Nano Banana Pro (Gemini 3 Pro Image)"
+    model_string: "google/nano-banana-pro"    # UNVERIFIED-PENDING-M4
+    price_credits: 24
+    price_usd: 0.12
+    notes: "NOT auto-selected in this goal; draft tier only for the M5 test run"
+
+defaults:
+  draft_route: img-draft-nano-banana
+  fallback_draft_route: img-draft-seedream
+  tier_ceiling: draft          # unattended/auto selection may never exceed this in the goal campaign
+  people_free_composition: true
+  policy_a_no_product_depiction: true
