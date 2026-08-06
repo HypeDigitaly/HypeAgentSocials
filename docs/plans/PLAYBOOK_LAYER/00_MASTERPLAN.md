@@ -17,6 +17,7 @@
 | `03_pipeline_and_gates.md` | Design annex — trigger lanes, ranking profiles, recurrence rework, criterion registry, node injection points, fact-schema profiles, readiness extensions, fixture replacement. |
 | `04_RECONCILIATION.md` | **Produced by Amendment B Wave 0.** Binding rulings on C-1…C-13. Does not yet exist. |
 | `05_query_steering.md` | Design annex — per-source query surfaces (live-verified where possible), Virlo and DataForSEO control surfaces in detail, the two collection modes, query profiles, the missing topic filter, the per-language topic object. Closes **P-12**. |
+| `06_config_surface.md` | **Master annex for the operator control surface.** The authoring form vs resolved form split, the reconciliation rulings CFG-C-1…CFG-C-17, its own waves and barriers, and five open operator decisions. Downgrades **P-8**; does not yet close it. Its five source documents live in `06_WORKING/`, governed by `06_WORKING/CONDUCTOR_RULINGS.md` (CR-1…CR-11). |
 
 **The annexes are inputs, not the design.** Each was authored in parallel from a different domain and they contradict each other in thirteen places (§4). Nothing in an annex is binding until §4 rules on it. Where this master plan and an annex disagree, this file governs.
 
