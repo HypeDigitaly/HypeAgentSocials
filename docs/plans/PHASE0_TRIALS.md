@@ -92,3 +92,15 @@ Each trial's verdict gets: a dated row in `DECISION_LOG.md` (OD-16 resolved to a
 **Real-channel caution observed:** the operator's Postiz has five live brand channels connected (2× LinkedIn page, Instagram, Facebook, TikTok). The only write action taken was the single clearly-labelled test draft; it is safe to delete from the Postiz UI at any time.
 
 **OP-2 day-1 verdict: the drafts-only bridge design stands on all evidence so far.** Remaining before OP-2 closes: operator UI glance (check 2/4), transition test on a non-brand channel (check 3, Phase 6), and the §7.4 choke-point design note above carried into implementation.
+
+---
+
+## Kie.ai router inspection (2026-08-07) — the two §17.2 Phase-0 provider questions
+
+*Account live (credit endpoint authenticates; balance 10 080 credits). Inspected surface: the Veo3 API family (generate + video-details) on docs.kie.ai. Decision row: W8-3.*
+
+**Q1 — Does the router's task-status response name the rendering model? NO.** The video-details response schema carries `taskId`, `paramJson` (an echo of the *request* — requested model only), `completeTime`, `response` (URLs, resolution), `successFlag`, `errorCode`, `errorMessage`, `createTime`. No field names the model that actually rendered. The only substitution signal is `fallbackFlag` — documented as *"Whether generated using fallback model"* — boolean, **deprecated**, and absent on newer (4K) paths. Consequence, exactly as the plan pre-stated for this answer: **§5.6's three-state inference rule ships** (delivered identity is best-effort inference; *substituted — identity unknown* degrades to plan-only at the publish gate).
+
+**Q2 — Person-generation eligibility for this account/region: NOT A SURFACED CONTROL.** The generate endpoint exposes `model` (veo3 / veo3_fast / veo3_lite) and no personGeneration parameter, no EU-region restriction, no per-account allowlist to request. Refusals surface only as content-policy errors at generation time. The Phase-0 item "any allowlist request submitted" closes as **not applicable on this router** — there is nothing to apply for. R2-M18's posture stands: people-free keyframe composition is the injected default; plan-only is the floor.
+
+**Design-relevant discovery:** Kie documents automatic internal fallback on content-review triggers **including "prominent people upload" errors** (the deprecated `enableFallback` note says the system now "automatically optimized the content review mechanism" — i.e., fallback is internal and always-on). So a request that trips the person policy may be **silently served by a different model, with no identity reported**. This is the exact scenario §5.6's inference rule and R2-B4's requested-versus-delivered recording exist for; Phase 3's acceptance criterion ("a silent model substitution, if one occurs, is visible on the artifact") should test against this trigger class specifically.

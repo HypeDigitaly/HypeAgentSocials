@@ -39,9 +39,9 @@
 - [ ] Create the **separate router account** that isolates the runaway-loop risk (§5.4).
 - [ ] Set a **hard spend cap at the text-model vendor** — the text wallet is a different vendor from the $50 Kie credit and needs its own funded envelope before Phase 2.
 
-### Your own product's images (new, from your W8-1 decision)
+### ~~Your own product's images~~ (CLOSED 2026-08-06 — decision reversed)
 
-- [ ] You chose to turn product-dashboard imagery back on (Policy B). For that to activate you must supply **current, real screenshots of the product interface**, attested as accurate, entered as F-W reference imagery. Until then the system runs in the safe mode (Policy A) automatically.
+- [x] ~~Supply product screenshots for Policy B~~ — **You decided against product imagery entirely (W8-1a supersedes W8-1).** The system stays in safe mode (Policy A): no depictions of your products, ever. Visuals come from generation, licensed sources, and your existing brand assets (logos, published images). **Nothing to supply.**
 
 ### Quick yes/no confirmations (the veto window, item 5 of the approval summary)
 
@@ -61,7 +61,7 @@
 - 🟡 Exemplar corpora: English drawn from your own marketing docs (15 exemplars, curation needed); **Czech exemplars don't exist in the repo — 5 drafts authored for your approval, rest [OPERATOR TO SUPPLY]** (`calibration/cs/structural_corpus.md`).
 - 🟡 **The four calibration artefacts + frozen eval set** — all drafted (`calibration/`): EN golden set 18 items, CS golden set 22 items covering all eleven Czech judge dimensions, frozen eval sets 12+12 items. Numeric measurement bands await tooling (Phase 1); **your approval queue is listed in `calibration/README.md`** (7 items).
 - 🟡 The privacy artefacts drafted for counsel (`legal/`): recipient map (10 providers), four legitimate-interest assessments (per purpose × source family), Czech+English privacy notice naming ÚOOÚ. **15 [COUNSEL TO CONFIRM] + [OPERATOR TO CONFIRM] items marked inside** — the EDPB verification (OD-26) still gates finalisation.
-- ⏳ Two provider questions answered by inspection: person-generation eligibility for this account/region, and whether the router's task status names the rendering model. *(BLOCKED — needs the Kie.ai account set up.)*
+- ✅ Two provider questions **answered by inspection** (2026-08-06, Kie.ai account live, 10 080 credits): the router's task status does **NOT** name the rendering model (so the plan's §5.6 inference rule ships, as designed), and person-generation is **not a controllable parameter or allowlist** on this router (people-free composition stays the default; nothing to apply for). Full evidence in `PHASE0_TRIALS.md`, decision row W8-3.
 
 ---
 
@@ -82,6 +82,6 @@ Everything else above can still be in flight — those three cannot.
 | Decision | Where recorded |
 |---|---|
 | Amendment A applied; Stage-5 approval unblocked | DECISION_LOG PB-D-1 |
-| Theme #1 will opt into Policy B (product imagery back, with real screenshots + attestation) | DECISION_LOG W8-1 |
+| ~~Theme #1 will opt into Policy B~~ **REVERSED: no product imagery at all — Policy A stands permanently by choice; brand visuals = logos + existing published assets only** | DECISION_LOG W8-1a (supersedes W8-1) |
 | Czech axis = 4 automated sources (Virlo/GNews/YouTube/DataForSEO CZ); reduction accepted | DECISION_LOG W8-2 |
 | Amendment B (playbook layer) deferred — not started until the operator says so | 00_MASTERPLAN §6; conductor recommendation: after Phase 4 |

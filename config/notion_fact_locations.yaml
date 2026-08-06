@@ -96,13 +96,13 @@ fact_locations:
 
   F-W_reference_imagery:
     home: null
-    state: gap
+    state: not-applicable
     notes: >
-      Required for the W8-1 Policy B opt-in (product-dashboard imagery).
-      Needs: typed database rows linked to F-B items — reference screenshot,
-      supply date, per-asset operator attestation of current accuracy.
-      Blocked on the operator supplying current product screenshots anyway;
-      create together with the F-B database.
+      CLOSED 2026-08-06 (W8-1a supersedes W8-1): the operator withdrew the
+      Policy B opt-in — no product depictions at all, Policy A is the
+      standing posture by choice. F-W stays legitimately empty at item level
+      (§6.3) and no database is created. If Policy B is ever re-opened, the
+      full §10.4 precondition set applies unchanged.
 
   F-G_price_values:
     home: "Čísla a sliby (database) + Ceny a nabídky (hd.hub.pricing)"
