@@ -32,8 +32,11 @@ The goal's completion criterion is the **test run**, and the test run defines th
       fail-closed config loader, 5-stage stub pipeline, run ledger, 9 exit classes,
       17/17 tests, smoke run verified.
 - [x] **W8-6 lands-at edits** (commit 9ca1b27).
-- [ ] **M2 — zero-cost collection + ranking + digest** (Phase 1 complete). IN FLIGHT via
-      builder agent. Four free collectors (HN, Google News RSS en+cs, HF trending, PH feed),
+- [x] **M2 — zero-cost collection + ranking + digest** (commit 87ae0f3, 2026-08-07).
+      68/68 tests; real smoke runs 2026-08-07_9578/_e434/_d6a7 pulled live EN+CS AI-trend
+      signal end to end. Two live-endpoint fixes: HF `sort=trendingScore` (not `trending`),
+      `retrieved_at` = fetch moment (not source pubDate — retention clocks key on retrieval).
+      Four free collectors (HN, Google News RSS en+cs, HF trending, PH feed),
       research artifact store w/ GDPR machinery (retention+expiry job, split provenance,
       keyed handle hash, special-category double exclusion, targeted deletion reaching into
       packs), ranking (evidence classes, family corroboration, fit gate w/ deterministic

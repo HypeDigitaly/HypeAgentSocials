@@ -1,0 +1,112 @@
+# Claim-ledger SNAPSHOT — Notion "Čísla a sliby", taken 2026-08-07
+# ---------------------------------------------------------------------------
+# This is the §6.6 offline snapshot, NOT a second ledger. The single source of
+# truth remains the Notion database (data source
+# collection://e4aee61a-d579-47ff-b057-bfe9832f751d, database
+# 499f47a8-fbfa-4a20-ad47-f0f5989cf3b7). The engine has no Notion credential,
+# so runs consume the latest dated snapshot in this directory and record its
+# snapshot_id in every pack's fact-usage trace. Refresh = re-query Notion,
+# write a new dated file, never edit an old one. If the snapshot is older than
+# max_age_days, the brand-truth stage degrades per §6.5 (stale snapshot).
+#
+# Row semantics (Notion schema): Stav (schváleno/ověřit/nepoužívat/starší),
+# Chování AI (citovat = may cite verbatim · kvalifikovat = cite only with the
+# stated qualification · abstain = never state). Only Stav=schváleno rows are
+# included in a snapshot by rule.
+#
+# NOTE the standing F-F policy (config/brand_facts.yaml): prices-never-stated.
+# The pricing rows below are carried faithfully because the snapshot must
+# mirror the ledger, but generated copy may not state price values while that
+# policy stands — the claim gate enforces policy AFTER ledger membership.
+
+meta:
+  snapshot_id: "cisla-a-sliby-2026-08-07"
+  taken_at: "2026-08-07"
+  source_data_source: "collection://e4aee61a-d579-47ff-b057-bfe9832f751d"
+  source_database_id: "499f47a8-fbfa-4a20-ad47-f0f5989cf3b7"
+  rows_total: 10
+  rows_included: 10   # all Stav=schváleno as of taken_at
+  max_age_days: 30
+
+claims:
+  - claim_key: "AI Asistent Starter monthly"
+    notion_row_id: "3b3ddb91-8433-8132-99e8-c2e8afe538c3"
+    category: pricing
+    behavior: citovat
+    text_cs: "Starter: 5 000 Kč/měsíc + 35 000 Kč nasazení (bez DPH), 1. rok 95 000 Kč — z nového ceníku 28.5.2026"
+    canonical_source: "https://hypedigitaly.ai"
+    verified: "2026-08-05"
+
+  - claim_key: "AI Asistent Premium monthly"
+    notion_row_id: "3b3ddb91-8433-8177-8bf6-e70db7640f55"
+    category: pricing
+    behavior: citovat
+    text_cs: "Premium: 14 990 Kč/měsíc + 50 000 Kč nasazení (bez DPH)"
+    canonical_source: "https://hypedigitaly.ai"
+    verified: "2026-08-05"
+
+  - claim_key: "AI Asistent Enterprise monthly"
+    notion_row_id: "3b3ddb91-8433-81ce-8b51-f0d239576eeb"
+    category: pricing
+    behavior: citovat
+    text_cs: "Enterprise: 34 990 Kč/měsíc + 75 000 Kč nasazení (bez DPH)"
+    canonical_source: "https://hypedigitaly.ai"
+    verified: "2026-08-05"
+
+  - claim_key: "HypeLead current pricing"
+    notion_row_id: "3b3ddb91-8433-81dd-a938-c98158eba982"
+    category: pricing
+    behavior: citovat
+    text_cs: "Kanonická cena HypeLead = live https://hypedigitaly.ai/hypelead (+ EN) + oficiální DFY flyer PDF na stránce Ceny a nabídky. Historické flyery = ne current."
+    canonical_source: "https://hypedigitaly.ai/hypelead?lang=en"
+    verified: "2026-08-05"
+
+  - claim_key: "Chatbot VS pricing table"
+    notion_row_id: "3b3ddb91-8433-81ea-8018-de13d37f0214"
+    category: pricing
+    behavior: citovat
+    text_cs: "VS chatbot: dle obyvatel 10k–150k nasazení + 3500–5000 Kč/měsíc; 4 Kč/odpověď nad limit; 2000 Kč/h (bez DPH) — live /chatbot"
+    canonical_source: "https://hypedigitaly.ai/chatbot"
+    verified: "2026-08-05"
+    note: "Web zmiňuje RAGus v balíčku — runtime pro nové projekty = HypeAgent"
+
+  - claim_key: "Case study 35095 answers"
+    notion_row_id: "3b3ddb91-8433-8163-af9a-f9f18588ea3a"
+    category: metric
+    behavior: kvalifikovat
+    qualification: "Vždy uvést období (leden–červenec 2025) a že jde o source-reported data z webu/blogu"
+    text_cs: "35 095 AI odpovědí z 5 krajů, období leden–červenec 2025 (source-reported na webu/blogu)"
+    canonical_source: "https://hypedigitaly.ai/blog/pripadova-studie-5-kraju-cr"
+    verified: "2026-08-05"
+
+  - claim_key: "Current platform HypeAgent"
+    notion_row_id: "3b3ddb91-8433-81a0-8928-c093dab7b6f8"
+    category: platform
+    behavior: citovat
+    text_cs: "Aktuální platforma AI chatbotů/agentů (včetně VS projektů) = HypeAgent — https://hypeagent.ai"
+    canonical_source: "https://hypeagent.ai"
+    verified: "2026-08-05"
+
+  - claim_key: "RAGus legacy dashboard"
+    notion_row_id: "3b3ddb91-8433-8153-9873-f4f45d8eca12"
+    category: platform
+    behavior: citovat
+    text_cs: "RAGus (app.ragus.ai) = starší dashboard; neoznačovat jako aktuální platformu pro nové VS projekty"
+    canonical_source: "https://app.ragus.ai"
+    verified: "2026-08-05"
+
+  - claim_key: "IČO HypeDigitaly"
+    notion_row_id: "3b3ddb91-8433-8182-8c99-e0885574daf5"
+    category: legal
+    behavior: citovat
+    text_cs: "IČO 17665655, DIČ CZ17665655, sídlo Velká Hradební 2800/54, 400 01 Ústí nad Labem"
+    canonical_source: "https://hypedigitaly.ai/privacy-policy"
+    verified: "2026-08-05"
+
+  - claim_key: "Public contact info"
+    notion_row_id: "3b3ddb91-8433-8195-bd64-d1d126ed7698"
+    category: legal
+    behavior: citovat
+    text_cs: "info@hypedigitaly.ai, +420 774 996 248 (veřejně na webu)"
+    canonical_source: "https://hypedigitaly.ai/kontakt"
+    verified: "2026-08-05"
