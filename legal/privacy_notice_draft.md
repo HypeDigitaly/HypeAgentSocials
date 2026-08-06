@@ -11,9 +11,9 @@
 
 **Správce údajů:**
 - **HypeDigitaly s.r.o.**
-- IČ: [OPERATOR TO CONFIRM]
-- Sídlo: [OPERATOR TO CONFIRM]
-- Kontaktní osoba pro údaje: [OPERATOR TO CONFIRM EMAIL]
+- IČ: 17665655, DIČ: CZ17665655
+- Sídlo: Velká Hradební 2800/54, 400 01 Ústí nad Labem
+- Kontaktní osoba pro údaje: info@hypedigitaly.ai
 
 **Dohledový orgán:**
 - **Úřad pro ochranu osobních údajů (ÚOOÚ)**
@@ -133,8 +133,8 @@ Máte právo:
 
 Chcete-li si vyžádat kterékoli z výše uvedených práv, kontaktujte nás:
 
-**E-mail:** [OPERATOR TO CONFIRM EMAIL]  
-**Pošta:** HypeDigitaly s.r.o., [OPERATOR TO CONFIRM ADDRESS]
+**E-mail:** info@hypedigitaly.ai  
+**Pošta:** HypeDigitaly s.r.o., Velká Hradební 2800/54, 400 01 Ústí nad Labem
 
 Odpovíme do **30 kalendářních dnů**. Máte-li dotazy na naše zpracování, zeptejte se.
 
@@ -160,8 +160,8 @@ Po vypršení doby jsou údaje smazány a neobnovují se.
 Máte-li otázky na toto oznámení:
 
 - **HypeDigitaly s.r.o.** — data protection contact  
-  Email: [OPERATOR TO CONFIRM]  
-  Address: [OPERATOR TO CONFIRM]
+  Email: info@hypedigitaly.ai  
+  Address: Velká Hradební 2800/54, 400 01 Ústí nad Labem
 
 - **ÚOOÚ** — Czech Data Protection Authority  
   www.uoou.gov.cz
@@ -180,9 +180,9 @@ Máte-li otázky na toto oznámení:
 
 **Data Controller:**
 - **HypeDigitaly s.r.o.**
-- Registration number (IČ): [OPERATOR TO CONFIRM]
-- Registered office: [OPERATOR TO CONFIRM]
-- Data Protection Contact: [OPERATOR TO CONFIRM EMAIL]
+- Registration number (IČ): 17665655, VAT ID: CZ17665655
+- Registered office: Velká Hradební 2800/54, 400 01 Ústí nad Labem, Czech Republic
+- Data Protection Contact: info@hypedigitaly.ai
 
 **Supervisory Authority:**
 - **Office for Personal Data Protection (Úřad pro ochranu osobních údajů — ÚOOÚ)**
@@ -302,8 +302,8 @@ You have the right to:
 
 To exercise any of the above rights, please contact us:
 
-**Email:** [OPERATOR TO CONFIRM EMAIL]  
-**Mail:** HypeDigitaly s.r.o., [OPERATOR TO CONFIRM ADDRESS]
+**Email:** info@hypedigitaly.ai  
+**Mail:** HypeDigitaly s.r.o., Velká Hradební 2800/54, 400 01 Ústí nad Labem, Czech Republic
 
 We will respond within **30 calendar days**. If you have questions about how we process your data, please ask.
 
@@ -329,8 +329,8 @@ After expiry, data is deleted and not restored.
 If you have questions about this notice:
 
 - **HypeDigitaly s.r.o.** — data protection contact  
-  Email: [OPERATOR TO CONFIRM]  
-  Address: [OPERATOR TO CONFIRM]
+  Email: info@hypedigitaly.ai  
+  Address: Velká Hradební 2800/54, 400 01 Ústí nad Labem
 
 - **ÚOOÚ** — Czech Data Protection Authority  
   www.uoou.gov.cz
@@ -343,4 +343,4 @@ If you have questions about this notice:
 
 **END OF DRAFT NOTICE**
 
-Note for counsel: The above is a public-facing draft intended for publication on the company website and/or privacy policy page. Sections marked [OPERATOR TO CONFIRM] or [COUNSEL TO CONFIRM] must be filled in and verified before publication. The Article 13 recipients section (§5) and third-country transfers section (§6) are derived from the accompanying `recipient_map.md` and must remain consistent with that document.
+Note for counsel: The above is a public-facing draft intended for publication on the company website and/or privacy policy page. Sections marked [OPERATOR TO CONFIRM] or [COUNSEL TO CONFIRM] must be filled in and verified before publication. Controller identity data (IČ 17665655, registered office, contact email) was filled 2026-08-06 from the operator's own knowledge base ("O firmě", verified 2026-08-05 against hypedigitaly.ai/privacy-policy and the ARES register link) — counsel should still verify as part of final review. The Article 13 recipients section (§5) and third-country transfers section (§6) are derived from the accompanying `recipient_map.md` and must remain consistent with that document.

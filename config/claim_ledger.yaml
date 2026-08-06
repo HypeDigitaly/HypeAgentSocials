@@ -14,6 +14,20 @@
 #     approved — an honestly empty ledger is a valid Phase-0 outcome; an
 #     unreadable one is not."
 #
+# >>> 2026-08-06 UPDATE — CANDIDATE PRIMARY HOME FOUND IN NOTION <<<
+#   The operator's workspace already contains a working typed claim database:
+#   "Čísla a sliby" (database 499f47a8-fbfa-4a20-ad47-f0f5989cf3b7, data
+#   source collection://e4aee61a-d579-47ff-b057-bfe9832f751d), holding 10
+#   approved entries verified 2026-08-05, each with claim text (cs), category,
+#   canonical-source URL, verified date, approval status and an AI-behaviour
+#   rule (citovat/kvalifikovat/abstain). This matches OD-9's recommended
+#   Notion-primary split almost exactly; three schema gaps (per-language EN
+#   text, valid-until, usage scope) are proposed as additions there. See
+#   config/notion_fact_locations.yaml (F-H entry) for the full mapping and
+#   the operator-confirmation queue. Until the operator confirms OD-9, this
+#   file stays the config-side default and stays honestly empty — the Notion
+#   rows are NOT mirrored here, because two ledgers is one ledger too many.
+#
 # LOCATION IS A DEFAULT PENDING OD-9 (§16.2, carried as a recommendation,
 # not a lock — see also plan summary point 5):
 #   OD-9 recommends (c) a SPLIT: the ledger primary in a typed knowledge-base

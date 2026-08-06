@@ -1,0 +1,174 @@
+# Designated fact locations — Notion knowledge base (W2-11, §6.2, §6.3, §17.2 Phase 0)
+# Written 2026-08-06 from a live read of the operator's Notion workspace.
+# STATUS: PROPOSED — awaiting operator confirmation (the Phase-0 checklist's
+# "You'll be asked to confirm the locations" item). Once confirmed, brand-truth
+# resolution reads ONLY from the locations named here (§6.2: "resolution reads
+# only from designated fact locations"). Anything not listed is invisible to
+# the engine BY DESIGN — roadmaps, drafts and aspirations must never be read.
+#
+# PLAN-VS-FACT SEPARATION: CONFIRMED STRUCTURALLY (2026-08-06 read).
+#   The workspace hub ("Second Brain") states explicitly that tasks, deadlines
+#   and project changes live in the separate "HypeDigitaly Projects" teamspace,
+#   and its AI guide page carries do_not: [store_secrets, invent_facts] plus a
+#   binding retrieval order. The engine's designated locations below are all
+#   inside the Second Brain handbook subtree; no project/teamspace page is a
+#   fact location. This satisfies §6.2's structural control (W2-11) — no
+#   escalation needed.
+#
+# ACCESS: currently via the operator's interactive Notion MCP (OAuth).
+#   The scheduled-run credential — an INTERNAL INTEGRATION TOKEN, read-only,
+#   shared ONLY with the pages/databases below — is still to be issued before
+#   Phase 1 runs unattended (see runbooks/notion_token_reissue.md).
+
+workspace:
+  hub_page: "Second Brain"
+  hub_page_id: "3b3ddb91-8433-81fd-8195-d082cd98f4d6"
+  ai_entry_page: "Pro AI agenty"          # carries retrieval order + stable keys
+  ai_entry_page_id: "3b3ddb91-8433-8174-bdae-eb09b77602fc"
+  page_index_database: "Seznam stránek"    # admin/AI page registry
+  last_workspace_verified: "2026-08-05"    # per-page last_verified stamps
+
+# --- Fact classes (§6.3 taxonomy, F-A .. F-N) --------------------------------
+# "home" = the ONLY place resolution may read that class from.
+# "state" = exists / gap / config-primary (config-primary classes do not live
+#           in Notion at all; listed for completeness so nobody goes looking).
+
+fact_locations:
+  F-A_identity_entities:
+    home: "O firmě (hd.hub.company)"
+    page_id: "3b3ddb91-8433-8171-b3f1-fa97d2338fdd"
+    state: exists
+    notes: >
+      Legal entity (IČO 17665655, DIČ CZ17665655, sídlo), brands and domains
+      (hypedigitaly.ai, hypelead.ai, hypeagent.ai, app.ragus.ai), public
+      spokesperson (Pavel Čermák, jednatel/CTO). Person allowlist derives from
+      here plus the named public testimonial authors on hd.hub.proof.
+
+  F-B_offer_catalogue:
+    home: "Co nabízíme (hd.hub.services) — INTERIM"
+    page_id: "3b3ddb91-8433-812a-a306-eb09642e6743"
+    state: gap
+    notes: >
+      GAP: §6.3 requires a TYPED DATABASE with a load-bearing status field;
+      today this is a page with a services table (11 services + platform
+      status HypeAgent=current / RAGus=legacy). PROPOSAL: create an "Offer
+      catalogue" database (name, one-liner, status, owning brand/domain,
+      canonical URL) seeded from the existing table. Awaiting operator OK.
+
+  F-C_capability_statements:
+    home: "Co nabízíme (hd.hub.services)"
+    page_id: "3b3ddb91-8433-812a-a306-eb09642e6743"
+    state: gap
+    notes: >
+      Positive capabilities exist in prose. GAP: the DOES-NOT lists (negative
+      capabilities, §6.3 "blocking, not enriching" — the autonomy-inflation
+      catcher) do not exist yet. Must be authored per offer before Phase 2's
+      claim gate can enforce check class autonomy-inflation.
+
+  F-D_icp_map:
+    home: null
+    state: gap
+    notes: >
+      No ICP database found in the Second Brain. Segment material exists in
+      the repo (docs/marketing GTM playbooks) but the engine may not read
+      repo marketing docs as brand truth. PROPOSAL: small typed database
+      (segment, type, pains, language, platform). At least one segment is
+      required — F-D may NOT be legitimately empty.
+
+  F-E_cta_set:
+    home: null
+    state: gap
+    notes: >
+      No CTA database. §6.3: allowed CTA classes per offer × destination ×
+      language with literal phrasing + destination URL. Two-domain routing
+      rule (product → hypelead.ai/hypeagent.ai pages, agency → hypedigitaly.ai)
+      is already documented on hd.hub.services and must be encoded here.
+
+  F-F_pricing_policy:
+    home: "config (engine), not Notion"
+    state: config-primary
+    notes: >
+      Engine safe default per §6.3 note 2: prices are never stated in social
+      unless the operator authors a rule. NOTE the tension to resolve at
+      confirmation: the operator's own ledger marks approved prices "citovat"
+      (cite) for sales/chat use — the SOCIAL pricing policy is a separate,
+      deliberate operator decision, not inherited from that.
+
+  F-W_reference_imagery:
+    home: null
+    state: gap
+    notes: >
+      Required for the W8-1 Policy B opt-in (product-dashboard imagery).
+      Needs: typed database rows linked to F-B items — reference screenshot,
+      supply date, per-asset operator attestation of current accuracy.
+      Blocked on the operator supplying current product screenshots anyway;
+      create together with the F-B database.
+
+  F-G_price_values:
+    home: "Čísla a sliby (database) + Ceny a nabídky (hd.hub.pricing)"
+    database_id: "499f47a8-fbfa-4a20-ad47-f0f5989cf3b7"
+    data_source: "collection://e4aee61a-d579-47ff-b057-bfe9832f751d"
+    page_id: "3b3ddb91-8433-8146-8752-f7aeb9e49b35"
+    state: exists
+    notes: >
+      Excellent fit. Pricing rows are typed, dated (Ověřeno), statused
+      (schváleno/ověřit/nepoužívat/starší ≈ the plan's status filter) and
+      carry canonical URLs — which are exactly the §6.6 site-verification
+      pages (hypedigitaly.ai/hypelead, /chatbot). 🟡-historical PDFs are
+      correctly quarantined on the pricing page.
+
+  F-H_claim_ledger:
+    home: "Čísla a sliby (database) — PROPOSED as OD-9's answer"
+    database_id: "499f47a8-fbfa-4a20-ad47-f0f5989cf3b7"
+    data_source: "collection://e4aee61a-d579-47ff-b057-bfe9832f751d"
+    state: exists-with-schema-gaps
+    notes: >
+      10 approved entries as of 2026-08-06, all verified 2026-08-05. Schema
+      maps: Nárok→claim title, Text→text(cs), Kategorie→claim type,
+      Kanonický zdroj→evidence pointer, Ověřeno→valid-from, Stav→approval,
+      Chování AI (citovat/kvalifikovat/abstain)→usage guidance. MISSING vs
+      §6.3 F-H: per-language text (no EN column), valid-until, and an explicit
+      usage-scope field (which destinations/languages a claim may appear in).
+      PROPOSAL: add three properties (Text EN, Platí do, Rozsah použití)
+      rather than build a second ledger. Awaiting operator OK + OD-9 confirm.
+      The repo file config/claim_ledger.yaml remains the SCHEMA REFERENCE and
+      offline pointer, not a second source of truth.
+
+  F-I_proof_case_allowlist:
+    home: "Důkazy a reference (hd.hub.proof) + metric rows in Čísla a sliby"
+    page_id: "3b3ddb91-8433-81b5-804d-d05980191657"
+    state: exists-partial
+    notes: >
+      Public testimonials (5 regional governments, named officials), the
+      5-region case study (Jan–Jul 2025, 35 095 answers, source-reported),
+      and citation rules (🟢 verbatim+source / 🟡 qualify / 🔴 never) exist.
+      GAP vs §6.3: client-name PERMISSION STATUS AND EXPIRY are not recorded
+      (testimonials are public statements, which helps, but the allowlist
+      field is still required before claims about clients enter generation).
+
+  F-J_hard_excludes:
+    home: "BOTH config/hard_excludes.yaml AND Notion (union wins, §6.3)"
+    notion_source: "Pro AI agenty → 'Hard exclude' section"
+    page_id: "3b3ddb91-8433-8174-bdae-eb09b77602fc"
+    state: exists
+    notes: >
+      Notion side already lists: passwords/tokens/keys, lead lists/CRM/cold
+      sequences, personal data beyond public professional attribution,
+      credential dumps. Config baseline holds the structure; union wins;
+      config alone survives a Notion outage.
+
+  F-K_product_rules:   { home: "config", state: config-primary }
+  F-L_voice_rules:     { home: "config + exemplar corpus (calibration/)", state: config-primary,
+                         notes: "Brand voice reference material: Logo a vzhled značky + FULL CORPUS pages feed the exemplar corpus, but the rules themselves are config." }
+  F-M_visual_baseline: { home: "config; brand assets on 'Logo a vzhled značky'", page_id: "3b3ddb91-8433-810e-b3f7-ebeef02c1c67", state: config-primary }
+  F-N_compliance:      { home: "config", state: config-primary }
+
+# --- Confirmation queue for the operator -------------------------------------
+# 1. Confirm the mappings above (or move any class elsewhere).
+# 2. Say yes/no to creating: Offer catalogue DB (F-B), ICP DB (F-D),
+#    CTA DB (F-E), Reference-imagery DB (F-W) — I can create all four
+#    pre-seeded from existing pages in one pass.
+# 3. Say yes/no to extending Čísla a sliby with Text EN / Platí do /
+#    Rozsah použití (F-H schema completion) — closes OD-9.
+# 4. Issue the read-only internal integration token before Phase 1
+#    unattended runs (interactive OAuth suffices until then).
