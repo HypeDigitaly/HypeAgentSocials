@@ -11,3 +11,12 @@ Desktop.ini
 # Scratch
 *.tmp
 ~$*
+
+# Engine run output (traces, ledger, locks) — not source
+logs/
+
+# Python build/dev artefacts
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/

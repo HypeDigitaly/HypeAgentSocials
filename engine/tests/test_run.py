@@ -1,0 +1,150 @@
+"""End-to-end tests for the run skeleton (hypeagent.main)."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from hypeagent import main as main_module
+from hypeagent import run_identity, stages
+from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
+
+
+def _write_minimal_config(repo_root):
+    config_dir = repo_root / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "hard_excludes.yaml").write_text(
+        "hard_excludes:\n"
+        "  topics: []\n"
+        "  framings: []\n"
+        "  claim_types: []\n"
+        "  do_not_mention_entities: []\n",
+        encoding="utf-8",
+    )
+
+
+def test_end_to_end_run_produces_all_artifacts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_config(tmp_path)
+
+    exit_code = main_module.main([])
+
+    assert exit_code == EXIT_CODE_MAP[ExitClass.SUCCESS]
+
+    logs_dir = tmp_path / "logs"
+    latest_path = logs_dir / "latest.txt"
+    ledger_path = logs_dir / "run_ledger.jsonl"
+    assert latest_path.exists()
+
+    from pathlib import Path
+
+    run_dir = Path(latest_path.read_text(encoding="utf-8").strip())
+    trace_path = run_dir / "trace.jsonl"
+    md_path = run_dir / "trace.md"
+
+    assert trace_path.exists()
+    assert md_path.exists()
+    assert ledger_path.exists()
+
+    ledger_lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert len(ledger_lines) == 1
+    ledger_entry = json.loads(ledger_lines[0])
+    assert ledger_entry["exit_class"] == ExitClass.SUCCESS.value
+    assert ledger_entry["trace_path"] == str(trace_path)
+
+    trace_lines = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert trace_lines[0]["event"] == "run_start"
+    assert trace_lines[-1]["event"] == "run_end"
+    assert trace_lines[-1]["detail"]["exit_class"] == ExitClass.SUCCESS.value
+
+    seqs = [line["seq"] for line in trace_lines]
+    assert seqs == list(range(1, len(seqs) + 1))
+
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "Timing waterfall" in md_text
+
+
+def test_second_invocation_while_locked_is_skipped_overlap(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_config(tmp_path)
+
+    logs_dir = tmp_path / "logs"
+    lock_path = logs_dir / "run.lock"
+    held_lock = run_identity.RunLock(lock_path)
+    held_lock.acquire()
+    try:
+        exit_code = main_module.main([])
+        assert exit_code == EXIT_CODE_MAP[ExitClass.SKIPPED_OVERLAP]
+
+        ledger_path = logs_dir / "run_ledger.jsonl"
+        ledger_lines = ledger_path.read_text(encoding="utf-8").splitlines()
+        assert len(ledger_lines) == 1
+        entry = json.loads(ledger_lines[0])
+        assert entry["exit_class"] == ExitClass.SKIPPED_OVERLAP.value
+    finally:
+        held_lock.release()
+
+
+def test_stage_exception_yields_hard_failure_and_truncated_trace_ends_at_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_config(tmp_path)
+
+    def _boom(ctx, trace):
+        raise RuntimeError("simulated mid-run kill")
+
+    broken_stages = tuple(
+        (name, _boom) if name == "collection" else (name, fn) for name, fn in stages.CANONICAL_STAGES
+    )
+    monkeypatch.setattr(stages, "CANONICAL_STAGES", broken_stages)
+
+    exit_code = main_module.main([])
+    assert exit_code == EXIT_CODE_MAP[ExitClass.HARD_FAILURE]
+
+    logs_dir = tmp_path / "logs"
+    latest_path = logs_dir / "latest.txt"
+    from pathlib import Path
+
+    run_dir = Path(latest_path.read_text(encoding="utf-8").strip())
+    trace_path = run_dir / "trace.jsonl"
+
+    trace_lines = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    # The trace ends at the error — no stage_end, no run_end was ever written,
+    # exactly as a genuine crash would leave it (RUN_TRACE_SPEC §5(b)).
+    assert trace_lines[-1]["event"] == "error"
+    assert "simulated mid-run kill" in trace_lines[-1]["detail"]["message"]
+    assert not any(line["event"] == "run_end" for line in trace_lines)
+
+    ledger_path = logs_dir / "run_ledger.jsonl"
+    ledger_entry = json.loads(ledger_path.read_text(encoding="utf-8").splitlines()[0])
+    assert ledger_entry["exit_class"] == ExitClass.HARD_FAILURE.value
+
+    # trace.md must still render from the truncated trace.
+    md_path = run_dir / "trace.md"
+    assert md_path.exists()
+
+
+def test_missing_config_yields_policy_stop(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    # No config/ directory at all -> ConfigError at theme_load -> policy-stop.
+    exit_code = main_module.main([])
+    assert exit_code == EXIT_CODE_MAP[ExitClass.POLICY_STOP]
+
+
+def test_render_mode_regenerates_trace_md(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_config(tmp_path)
+    main_module.main([])
+
+    logs_dir = tmp_path / "logs"
+    from pathlib import Path
+
+    run_dir = Path((logs_dir / "latest.txt").read_text(encoding="utf-8").strip())
+    trace_path = run_dir / "trace.jsonl"
+    md_path = run_dir / "trace.md"
+    md_path.unlink()
+    assert not md_path.exists()
+
+    exit_code = main_module.main(["--render", str(trace_path)])
+    assert exit_code == 0
+    assert md_path.exists()
