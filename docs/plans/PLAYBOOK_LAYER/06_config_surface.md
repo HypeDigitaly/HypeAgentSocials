@@ -9,6 +9,27 @@ This file records the rulings that resolve them and the waves that execute the f
 
 ---
 
+## 0a. Execution state — read this first if you are starting cold
+
+The design phase of this annex is **complete**. Execution is **not started** and is deliberately deferred to a fresh session.
+
+| Wave | State | Artifact |
+|---|---|---|
+| Wave 1 — five parallel designs | ✅ **done** | `06_WORKING/06A`…`06E` |
+| Wave 1.5 — adversarial review | ✅ **done** | Findings applied as CR amendments and as §3's rulings; verdict was *do not merge* |
+| **Wave 1.5-bis — fixture rebuild and paper-walk** | ✅ **done** | `06_WORKING/06F_fixture_walkthrough.md` — barrier passed, with two defects it surfaced now recorded as **CFG-C-18** |
+| **Wave 0 — reconciliation** | ⛔ **not started — this is where a fresh session begins** | `06_WORKING/06_RECONCILIATION.md` |
+| Wave 2 — rework the five inputs | ⛔ not started | edits to `06A`…`06E` |
+| Wave 3 — merge | ⛔ not started | this file, extended |
+
+**Nothing is half-written.** The five inputs are untouched originals; no file has been partially reworked. A fresh session starts at Wave 0 with no cleanup required.
+
+**Naming note.** Wave 0 runs *after* Waves 1 and 1.5 in wall-clock order. That is intentional and matches `00_MASTERPLAN.md`'s own convention: Wave 0 is the *reconciliation* wave — it cannot be authored until the parallel drafts exist and have been attacked, but everything downstream depends on it, so it holds ordinal zero.
+
+**The operator's standing instruction for execution:** *"FIX THE CTA TABLE."* CFG-C-2 is the headline deliverable of Wave 0 and the acceptance test for the whole annex.
+
+---
+
 ## 0. Folder contents
 
 | File | What it is |
@@ -20,6 +41,7 @@ This file records the rulings that resolve them and the waves that execute the f
 | `06_WORKING/06C_authoring_form.md` | Input — the operator-facing form and the two fixture configurations. **The weakest of the five; five blockers originate here.** |
 | `06_WORKING/06D_cta_authoring.md` | Input — the operator-authored CTA table and its per-class preconditions. |
 | `06_WORKING/06E_readiness_and_defaults.md` | Input — default semantics, layer resolution, eighteen readiness assertions, migration acceptance. **The strongest of the five.** |
+| `06_WORKING/06F_fixture_walkthrough.md` | **Produced by Wave 1.5-bis.** The rebuilt esoteric fixture and its end-to-end paper walk. Satisfies `PB-OD-7`'s second limb. Its own defects are ruled on at **CFG-C-18**. |
 
 ---
 
@@ -79,31 +101,57 @@ Binding. Wave 0 applies them; no Wave-2 task starts until it passes its barrier.
 
 **Two red-team findings are already ruled on in `CONDUCTOR_RULINGS.md` and are listed here for completeness:** the CTA-wording scanning gap (CR-4/CR-8) and the exclusion-polarity inversion (CR-9). **One remains open and is escalated to the operator** — see `CFG-OD-3` in §6.
 
+### CFG-C-18 — what the rebuilt fixture surfaced
+
+The Wave 1.5-bis walk passed its barrier: the fixture resolves cleanly, names only registry members that exist, and waives nothing. It also exposed two defects, which is the outcome a fixture exists to produce.
+
+**(a) "Not-applicable" and "pass" are being used interchangeably for S-5 and S-7, and one of the two readings is forbidden.** The walk labels both criteria *"N/A-with-complement-named"* at the angle-level checkpoint and then reports both as *passing* at the artifact-level checkpoint. Ruling **C-3** forbids any PROOF, NEXT-STEP or GLUE criterion being *"waived, softened, deprioritised or marked not-applicable by any objective, relation type, archetype, angle or genre."*
+
+**Ruling — the correct reading is `pass`, not `not-applicable`, and the two must never be conflated:**
+
+- **S-5 (proof discipline)** with a legitimately resolved-empty claim ledger is not vacant — it is at its **strictest possible setting**. Every proof-shaped statement requires a ledger entry; there are no ledger entries; therefore no proof-shaped statement may appear at all. That is a criterion doing maximum work, and it is recorded as **pass**, never as N/A.
+- **S-7 (no hype-glue)** is the real problem. With no offer there is no bridge, and `01` §6 currently has it record *"not applicable — no bridge present"* — which C-3 forbids and which `00_MASTERPLAN.md` §6 already lists as an unclosed hole assigned to **T5**: *"name S-7's complement for bridgeless assets."* **The fixture proves that hole is load-bearing rather than theoretical: the second playbook cannot be walked without hitting it.** It is promoted from a Wave-1 to-do to a **Wave-0 blocking item** — S-7's complement must be named before any file records a bridgeless S-7 outcome. Until it is named, a bridgeless asset records **pass** and prints its reasoning; it never records N/A.
+
+The general principle, which belongs in §19: *a gate that is silently satisfied and a gate that is silently open are the same defect.* `03` already says this about S-7 specifically; it applies to the whole PROOF/NEXT-STEP/GLUE set.
+
+**(b) Node identifiers in the walk are wrong.** It attributes the claim gate to N-9, the voice gate to N-10, the platform gate to N-11 and readiness to N-1. The inventory in `ARCHITECTURE_PLAN.md` §1.5 has **N-8/N-9 as the spin gate's two checkpoints, N-10 the claim-gate semantic pass, N-11 the voice-gate judge, N-12/N-13 the corpus-leakage and site-contradiction comparisons, and N-1 brand-fit judgment.** The walk's *sequence* is right and its *labels* are wrong. Corrected in Wave 2 by `06F`'s owner; every node reference re-verified against §1.5 rather than renumbered by inference.
+
+**(c) Recorded, not ruled:** the walk concludes that reach-and-community content in a wellness-adjacent vertical *"requires proportionally heavier human review — an operating cost, not a design defect."* That is accepted, and it is the honest form of `CFG-OD-3`. It must appear in §19 as an operating cost the operator has agreed to, not buried in an annex.
+
 ---
 
 ## 4. The waves
 
 Flat-wave leaf dispatch is the default. An orchestrating parent is used nowhere here: no wave has five or more tasks in one domain, no decomposition is unknowable up front, and file ownership is disjoint by construction.
 
-### Wave 0 — reconciliation *(shared dependency: runs first, sequentially, single owner)*
+### ✅ Wave 1.5-bis — falsification of the fixture — **COMPLETE**
+
+| Task | Agent | Wrote | Did |
+|---|---|---|---|
+| **V1** | `content-marketer` | `06_WORKING/06F_fixture_walkthrough.md` | Rebuilt the esoteric fixture from the real registries (CFG-C-6, CFG-C-7) and paper-walked it end to end. Barrier **passed**. Surfaced two defects, ruled on at **CFG-C-18**. |
+
+**Why this wave ran before the merge:** scheduling falsification after an irreversible merge is defect **P-9**, and this plan caught itself committing it twice — once in `00_MASTERPLAN.md`'s original wave order, once here. Running it early is what produced CFG-C-18 while acting on it is still free.
+
+**Result against `PB-OD-7`:** its second limb — *"a fully paper-walked second playbook exercising every gate and decision point"* — is satisfied, subject to CFG-C-18's corrections landing. The claim that extensibility is proven still requires either those corrections or a real second tenant.
+
+---
+
+### ⛔ Wave 0 — reconciliation — **START HERE** *(shared dependency: runs first, sequentially, single owner)*
 
 | Task | Agent | Writes | Does |
 |---|---|---|---|
-| **W0** | `architect-reviewer` | `06_WORKING/06_RECONCILIATION.md` | Applies CFG-C-1…CFG-C-17 as binding rulings. Produces the reconciled twelve-field list against registry IDs, the single provenance stamp, the regime set with the machine rows excluded, the identifier renumbering, and a **verified count** of the merged readiness surface (§13.2's 11 + `03`'s 11 + `05`'s 4 + `06E`'s 18, de-duplicated — nobody has yet counted this, and four are marked *extends*). |
+| **W0** | `architect-reviewer` | `06_WORKING/06_RECONCILIATION.md` | Applies CFG-C-1…CFG-C-18 as binding rulings. Headline deliverable is **CFG-C-2, the CTA table's five seams**. Also produces: the reconciled twelve-field list against registry IDs · the single provenance stamp · the regime set with the machine rows excluded · the complete identifier renumbering table · **S-7's complement for bridgeless assets** (promoted to blocking by CFG-C-18) · and a **verified count** of the merged readiness surface (§13.2's 11 + `03`'s 11 + `05`'s 4 + `06E`'s 18, de-duplicated — nobody has yet counted this, and four are marked *extends*). |
 
-**Barrier:** every §-reference in the rulings resolves · every open-question ID is unique across all six files · the readiness count is stated as a number with its de-duplication shown · no ruling contradicts `CONDUCTOR_RULINGS.md` as amended.
+**Do not split this wave.** Every downstream owner reads its output; two owners editing different halves of a reconciliation produce two reconciliations.
 
-### Wave 1.5-bis — falsification of the fixture *(before, not after)*
+**Barrier — all five must hold before Wave 2 starts:**
+1. The CTA table is specified at all five seams — field, knob row, resolver input, readiness assertion, precedence chain — with the artifact-composition point ruled as *before* N-9/N-10.
+2. S-7's complement for bridgeless assets is named, or the ruling records explicitly that a bridgeless asset passes and prints its reasoning.
+3. Every open-question ID is unique across all seven files in the folder.
+4. The readiness count is a number, with its de-duplication shown.
+5. Every §-reference resolves, and no ruling contradicts `CONDUCTOR_RULINGS.md` as amended.
 
-| Task | Agent | Writes | Does |
-|---|---|---|---|
-| **V1** | `content-marketer` | `06_WORKING/06F_fixture_walkthrough.md` | Rebuilds the esoteric fixture from the real registries (CFG-C-6, CFG-C-7) and **paper-walks it end to end**, naming every gate and decision point it touches and every one it fails. Per `00_MASTERPLAN.md` PB-OD-7 a fully paper-walked second playbook is a passing falsification outcome — this is that walk. |
-
-**Barrier:** the fixture resolves cleanly under `06B`'s failure taxonomy · it waives no PROOF/NEXT-STEP/GLUE criterion · every archetype and angle it names exists in the registry it cites.
-
-**Why this wave exists at all:** scheduling falsification after the irreversible merge is defect **P-9**, and this plan has now caught itself committing it twice. The first time was in `00_MASTERPLAN.md`'s original wave order. This is the second.
-
-### Wave 2 — rework *(flat; disjoint by file; all five spawn together)*
+### ⛔ Wave 2 — rework *(flat; disjoint by file; all six spawn together)*
 
 | Task | Agent | Owns | Applies |
 |---|---|---|---|
@@ -112,18 +160,19 @@ Flat-wave leaf dispatch is the default. An orchestrating parent is used nowhere 
 | **T3** | `content-marketer` | `06C_authoring_form.md` | CFG-C-4 (Field 11) · CFG-C-5 · CFG-C-6 · CFG-C-8 helper text · CFG-C-15 · CFG-C-17 · CFG-C-1's expanded pick list · Field 1 carrying public brand identity and brand-domain routing |
 | **T4** | `api-designer` | `06D_cta_authoring.md` | CFG-C-1 · CFG-C-2 · CFG-C-3 precedence chain · CFG-C-11(b)'s generalised platform-gate re-check · legal opens renumbered to `PB-OD-L-n` |
 | **T5** | `workflow-orchestrator` | `06E_readiness_and_defaults.md` | CFG-C-2 (`CFG-RA-15` re-scoped) · CFG-C-9 · CFG-C-10 · CFG-C-11(a) and (c) · CFG-C-14 · its own assertion miscount |
+| **T6** | `content-marketer` | `06F_fixture_walkthrough.md` | **CFG-C-18(a)** — replace every S-5/S-7 *not-applicable* with *pass* plus printed reasoning · **CFG-C-18(b)** — re-verify every node identifier against `ARCHITECTURE_PLAN.md` §1.5 rather than renumbering by inference |
 
 `T4` is assigned to `api-designer` rather than a legal agent by operator instruction; the legal *content* of `06D` is preserved unchanged and only its structure, precedence and identifiers are reworked.
 
-**Barrier:** each file passes a self-check that its assigned CFG-C rulings are applied and cited · no file re-opens a ruling · citation and format sweeps pass.
+**Barrier:** each file self-checks that its assigned rulings are applied and cited · no file re-opens a ruling · citation and format sweeps pass · **no file records a PROOF/NEXT-STEP/GLUE criterion as not-applicable.**
 
-### Wave 3 — merge *(single writer, aggregating file, LAST)*
+### ⛔ Wave 3 — merge *(single writer, aggregating file, LAST)*
 
 | Task | Agent | Writes |
 |---|---|---|
-| **T6** | conductor (main thread) | `06_config_surface.md` — this file, extended with the merged design |
+| **T7** | conductor (main thread) | `06_config_surface.md` — this file, extended with the merged design |
 
-The five working files remain as inputs. This file is the only aggregating artifact and has exactly one writer.
+The six working files remain as inputs. This file is the only aggregating artifact and has exactly one writer. **A subagent must never be given this file.**
 
 ---
 
@@ -136,7 +185,20 @@ The five working files remain as inputs. This file is the only aggregating artif
 | `06_config_surface.md` | conductor (Wave 3) |
 | `06_WORKING/06_RECONCILIATION.md` | `architect-reviewer` (Wave 0) |
 | `06_WORKING/CONDUCTOR_RULINGS.md` | conductor only — **no leaf may edit it in any wave** |
+| `06_WORKING/06F_fixture_walkthrough.md` | `content-marketer` (T6, Wave 2) |
 | `DECISION_LOG.md`, `RISK_LOG.md` | conductor, at Wave-0 close, per `C-5` |
+
+**Standing constraints every leaf prompt must carry.** Repeated here so a fresh session does not have to reconstruct them:
+
+- Read `06_WORKING/CONDUCTOR_RULINGS.md` **first**; CR-1…CR-11 are binding and unamendable by a leaf.
+- **No code, no pseudocode, no CLI syntax, no configuration-file syntax, no folder tree, no email addresses, no live-looking URLs or workspace paths.**
+- Never invent prices, ROI figures, client names, case metrics or proof — including inside fixtures.
+- Secrets are never configuration content.
+- **Behaviour preservation:** the HypeDigitaly B2B lead-generation configuration must reproduce today's designed behaviour exactly. Any change to theme #1's output is a defect of this amendment unless listed in §6 criterion D as an intended fix.
+- Write **only** the one file assigned. Never edit a sibling's file; report cross-file needs to the conductor.
+- Every §-reference must resolve. **`04_RECONCILIATION.md` does not exist** — rulings C-1…C-13 live in `00_MASTERPLAN.md` §4.
+- Apply rulings; do not relitigate them. Objections go in a closing section for the conductor.
+- **Do not spawn legal-review agents.** Standing operator instruction. Existing legal design content is preserved as written.
 
 **Wire-in — for every new symbol, where it is registered and who applies it:**
 
@@ -166,15 +228,19 @@ The five working files remain as inputs. This file is the only aggregating artif
 
 ---
 
-## 7. Open decisions for the operator
+## 7. Operator decisions — all five RESOLVED 2026-08-06
 
-| ID | Question | Recommendation |
+The operator answered *"PROCEED WITH ALL RECOMMENDED — FIX THE CTA TABLE."* All five are closed as recommended. They are recorded here as decisions, not questions, and **no wave may reopen them.**
+
+| ID | Decision | Consequence for execution |
 |---|---|---|
-| **CFG-OD-1** | **The CTA class count is twelve, not the ten stated when you approved it.** Event is live in the current architecture in five places and deleting it would silently drop its future-dating requirement. | Accept as a correction of fact. Nothing about the mechanism you approved changes — only the length of the list. |
-| **CFG-OD-2** | **The custom-voice escape hatch is removed** (CR-10). You pick one of six registered voices, or a new one is built as an engineering task. | Accept. The alternative is a tenant authoring the standard their own quality judge is calibrated against, which is the defect this amendment exists to close, one layer up. |
-| **CFG-OD-3** | **A residual safety gap is being accepted, not closed.** The deterministic scan catches numbers and known proof lexicon. It does **not** catch proof-shaped claims with no digits — *"clinically studied"*, *"most of our clients"* — and this compounds with the expressive voice, which treats feeling-shaped assertions as interior truth rather than checkable claims. Closing it properly needs a judgment model at the config boundary, which reopens the transitive-influence problem one layer earlier. | **Accept the gap with the two narrow mitigations in CR-8** and revisit on Phase-0 evidence. State it plainly in §19 rather than discovering it in production. |
-| **CFG-OD-4** | **The readback is self-attesting.** The resolver generates the description of its own decision. The reflexive check catches non-determinism (same input, different output) but not systematic bias (same input, confidently wrong every time). Your reading of it is the only real control. | Accept for v1, and set the confidence floors from Phase-0 trial data rather than asserting them now. The honest statement is that the readback currently asserts a confidence it has not yet earned. |
-| **CFG-OD-5** | **P-3 and P-4 stay open** unless Wave 2 lands the calendar and evergreen authoring fields. Recurring and calendar content — a daily menu, a seasonal ritual, "post five times a week regardless" — remains impossible. | Land the two fields at Tier B, defaulting inert. If they slip, record P-3/P-4 as open with an owner rather than letting the merge imply otherwise. |
+| **CFG-OD-1** | ✅ **RESOLVED — twelve CTA classes, not ten.** Accepted as a correction of fact: `event` is live in the current architecture in five places and deleting it would silently drop its future-dating requirement. The mechanism the operator approved is unchanged; only the list length is. | `06C`'s ten-class resolution is struck; `06D`'s twelve stands; `06A`'s pending count resolves. |
+| **CFG-OD-2** | ✅ **RESOLVED — no custom voice.** Six registered genres; a seventh is an engineering task, never an authoring act. The alternative was a tenant writing the standard their own quality judge is calibrated against. | CR-10 binds. `06C` B3's hatch and `06B` §2.2's terminal behaviour are struck. Only then is `06B` §6's registry-closure claim true. |
+| **CFG-OD-3** | ✅ **RESOLVED — the residual scan gap is accepted, with mitigations, and stated openly.** The deterministic scan catches digits and known proof lexicon; it does **not** catch *"clinically studied"* or *"most of our clients"*, and this compounds with the expressive genre's treatment of feeling-shaped assertions as interior truth. Closing it properly would require a judgment model at the config boundary, which reopens the transitive-influence problem one layer earlier. | CR-8's two mitigations are mandatory, not optional: the vertical-scoped deterministic body/mind-noun rule, and the gap stated in §19 with its owner and Phase-0 evidence trigger. **Not a footnote.** Related operating cost recorded at CFG-C-18(c). |
+| **CFG-OD-4** | ✅ **RESOLVED — the self-attesting readback is accepted for v1.** The resolver writes the description of its own decision; the reflexive check catches non-determinism but not systematic bias. | Confidence floors are set from Phase-0 trial data, never asserted now. §19 must say plainly that the readback currently asserts a confidence it has not yet earned. |
+| **CFG-OD-5** | ✅ **RESOLVED — land the calendar and evergreen fields.** Tier B, defaulting empty-and-inert, which is behaviour-preserving for theme #1. | Assigned to **T1 + T3** in Wave 2 (CFG-C-13). If they slip, **P-3 and P-4 are recorded as open with a named owner** — the merge may not imply they are closed. |
+
+**Still genuinely open, and not the operator's to answer:** `PB-OD-1` (ship the expressive archetype to a real audience), `PB-OD-4`, `PB-OD-6`, `PB-OD-7`'s first limb (a real second tenant), and the `PB-OD-L-n` counsel series — which by standing instruction is not extended by further legal review rounds, only recorded.
 
 ---
 
