@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS media_intents (
   requested_aspect TEXT,
   requested_output_format TEXT,
   prompt_sha256 TEXT NOT NULL,
+  prompt_full TEXT,
   expected_cost_credits REAL NOT NULL,
   expected_cost_usd REAL NOT NULL,
   task_id TEXT,
@@ -395,6 +396,7 @@ class MediaIntentRow:
     requested_aspect: str | None
     requested_output_format: str | None
     prompt_sha256: str
+    prompt_full: str | None
     expected_cost_credits: float
     expected_cost_usd: float
     task_id: str | None
@@ -425,7 +427,17 @@ class Store:
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate_schema()
         self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Additive, idempotent migrations for databases created before a
+        column existed (``CREATE TABLE IF NOT EXISTS`` does not retrofit an
+        already-created table). Every migration here is a bare ``ADD
+        COLUMN`` — never a destructive rewrite."""
+        cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(media_intents)").fetchall()}
+        if "prompt_full" not in cols:
+            self._conn.execute("ALTER TABLE media_intents ADD COLUMN prompt_full TEXT")
 
     @classmethod
     def open(cls, logs_dir: Path, secrets_dir: Path) -> "Store":
@@ -646,6 +658,41 @@ class Store:
         query += " ORDER BY retrieval_time ASC"
         rows = self._conn.execute(query, params).fetchall()
         return [_row_to_stored_signal(r) for r in rows]
+
+    def signals_for_run(self, run_id: str) -> list[StoredSignal]:
+        """Every normalized signal whose ``run_id`` column still names this
+        run (W8-8's process summary, §3 per-source extraction): a source
+        that was skipped this run via within-run idempotency (§8.5, a
+        same-day cache hit) correctly reports zero here, since no
+        ``store_signal`` call happened for it this run -- exactly the
+        "0 new items, cache hit" fact the process summary needs to state."""
+        rows = self._conn.execute(
+            "SELECT * FROM normalized_signals WHERE run_id=? ORDER BY retrieval_time ASC", (run_id,)
+        ).fetchall()
+        return [_row_to_stored_signal(r) for r in rows]
+
+    def find_raw_payload(
+        self, *, theme: str, source: str, query_sig_prefix: str, on_or_before_run_date: str
+    ) -> tuple[str, str] | None:
+        """Best-effort lookup of the most recent raw payload captured for a
+        (theme, source, query-signature-prefix) up to and including a given
+        run date, regardless of which run's directory the file physically
+        lives under (W8-8's process summary §3 Virlo fallback: a cache-hit
+        run makes no fetch of its own, so the payload that answered "what
+        did Virlo actually return" lives under an earlier run's artifacts
+        directory). Returns ``(run_id, raw_payload_path)`` from the request
+        log; the caller must still check the path exists on disk -- the
+        30-day retention job may have deleted the file already, which is
+        exactly the "raw payload expired" case the summary degrades to."""
+        row = self._conn.execute(
+            "SELECT run_id, raw_payload_path FROM request_log WHERE theme=? AND source=? "
+            "AND query_sig LIKE ? AND raw_payload_path IS NOT NULL AND run_date<=? "
+            "ORDER BY id DESC LIMIT 1",
+            (theme, source, f"{query_sig_prefix}%", on_or_before_run_date),
+        ).fetchone()
+        if row is None:
+            return None
+        return row["run_id"], row["raw_payload_path"]
 
     def trailing_metric_distribution(self, *, source: str, metric_name: str, within_days: int) -> list[float]:
         since = datetime.now().astimezone() - timedelta(days=within_days)
@@ -902,6 +949,7 @@ class Store:
         prompt_sha256: str,
         expected_cost_credits: float,
         expected_cost_usd: float,
+        prompt_full: str | None = None,
         now: datetime | None = None,
     ) -> MediaIntentRow:
         """Write the intent row BEFORE the createTask HTTP call is made.
@@ -909,19 +957,27 @@ class Store:
         Raises :class:`MediaIntentAlreadyExists` if this exact (identity,
         attempt) has already been committed -- the caller must resolve the
         existing row instead of submitting again (§8.5: "one (identity,
-        attempt) pair permits at most one paid submission ever")."""
+        attempt) pair permits at most one paid submission ever").
+
+        ``prompt_full`` (W8-8) is the complete, composed image prompt --
+        own-authored content (the copy asset's ``image_brief`` plus the
+        injected negative constraints), never third-party text, so unlike
+        every verbatim-text field elsewhere in this store it is safe to keep
+        in full. Only ``prompt_sha256`` is traced (RUN_TRACE_SPEC §3); the
+        full text lives here and in the per-asset provenance YAML so the
+        process summary (W8-8) can show exactly what was sent."""
         moment = now if now is not None else datetime.now().astimezone()
         try:
             cur = self._conn.execute(
                 "INSERT INTO media_intents (theme, run_date, run_id, cluster_key, asset_slot, "
                 "language, prompt_pattern_version, attempt, route_id, model_string, "
-                "requested_aspect, requested_output_format, prompt_sha256, expected_cost_credits, "
-                "expected_cost_usd, state, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'intent', ?)",
+                "requested_aspect, requested_output_format, prompt_sha256, prompt_full, "
+                "expected_cost_credits, expected_cost_usd, state, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'intent', ?)",
                 (
                     theme, run_date, run_id, cluster_key, asset_slot, language,
                     prompt_pattern_version, attempt, route_id, model_string,
-                    requested_aspect, requested_output_format, prompt_sha256,
+                    requested_aspect, requested_output_format, prompt_sha256, prompt_full,
                     expected_cost_credits, expected_cost_usd, _now_iso(moment),
                 ),
             )
@@ -1060,6 +1116,7 @@ def _row_to_media_intent(row: sqlite3.Row) -> MediaIntentRow:
         requested_aspect=row["requested_aspect"],
         requested_output_format=row["requested_output_format"],
         prompt_sha256=row["prompt_sha256"],
+        prompt_full=row["prompt_full"] if "prompt_full" in row.keys() else None,
         expected_cost_credits=row["expected_cost_credits"],
         expected_cost_usd=row["expected_cost_usd"],
         task_id=row["task_id"],

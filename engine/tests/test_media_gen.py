@@ -447,6 +447,14 @@ class TestHappyPathGeneration:
             assert row.state == "done"
             assert row.terminal is True
             assert row.checksum_sha256 is not None
+
+            # W8-8: the full, exact composed prompt is persisted on the
+            # ledger row AND in the per-asset provenance YAML -- own-authored
+            # content, unlike the trace's hash-only record.
+            expected_prompt = media_gen.compose_prompt("A calm office desk, no people.", _registry())
+            assert row.prompt_full == expected_prompt
+            assert doc["prompt_full"] == expected_prompt
+            assert doc["prompt_sha256"] == media_gen.prompt_sha256(expected_prompt)
         finally:
             store.close()
 

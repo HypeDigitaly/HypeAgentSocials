@@ -47,9 +47,12 @@ Fail-closed: missing/unreadable/empty key file -> this source degrades
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from hypeagent.collectors.base import (
     Budget,
@@ -68,6 +71,118 @@ DIGEST_ENDPOINT = f"{BASE_URL}/v1/trends/digest"
 AGENT_ENDPOINT_TEMPLATE = f"{BASE_URL}/v1/agents/{{monitor_id}}"
 
 DEFAULT_MONITOR_ID = "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"  # "AI Trends Tracker" (cycles Sundays)
+
+# W8-8: the rich per-theme / per-monitor fields the pipeline reads the
+# monitor payload FOR (name, confidence, video_count, stable_key -- see
+# ``_parse_agent_monitor``) versus the fields it currently discards at
+# normalization time. Named here, once, so both the collector's own
+# extraction note and the process summary's raw-payload fallback
+# (``hypeagent.process_summary``) agree on the same vocabulary.
+UNUSED_THEME_FIELDS: tuple[str, ...] = ("tactics", "why_it_works", "viral_tactics", "top_10_breakdown")
+UNUSED_MONITOR_FIELDS: tuple[str, ...] = ("connecting_thread", "timing_analysis", "key_highlight")
+
+VIRLO_EXTRACTION_FILENAME = "virlo_extraction.yaml"
+
+
+@dataclass
+class VirloExtractionNote:
+    """A small, per-run record of what the AI Trends Tracker monitor payload
+    actually contained (GOAL_ROADMAP.md W8-8): the themes the pipeline
+    extracted (name/confidence/video_count/stable_key — exactly what
+    normalization used) plus the *names* of richer fields present on the
+    payload but not yet fed into copy (tactics, why_it_works, ...). Never
+    copies the rich fields' own text — that is a separate quality milestone
+    (see the task note); this is a naming inventory only."""
+
+    monitor_id: str
+    themes: list[dict[str, Any]] = field(default_factory=list)
+    unused_fields_present: list[str] = field(default_factory=list)
+    endpoints_called: list[dict[str, str]] = field(default_factory=list)
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        return {
+            "monitor_id": self.monitor_id,
+            "endpoints_called": self.endpoints_called,
+            "themes": self.themes,
+            "unused_fields_present_in_raw_payload": self.unused_fields_present,
+        }
+
+
+def build_extraction_note(
+    payload: dict[str, Any], *, monitor_id: str, endpoints_called: list[dict[str, str]] | None = None
+) -> VirloExtractionNote | None:
+    """Build a :class:`VirloExtractionNote` from one ``/v1/agents/{id}``
+    response payload. Returns ``None`` when the monitor is not
+    ``finalized`` yet (nothing usable to note) or the payload shape is
+    unexpected -- mirrors :func:`_parse_agent_monitor`'s own "not yet
+    usable, not empty" posture, but never raises: a malformed/unexpected
+    payload degrades to "nothing extracted" rather than blowing up a
+    best-effort note.
+
+    Reused by ``hypeagent.process_summary`` to reconstruct this same note
+    from a raw payload file on disk when a run's own collection stage never
+    parsed the monitor fresh this run (a same-day cache hit, §8.5) — the
+    exact situation the hand-written analysis of run 2026-08-07_7ded had to
+    resolve by hand."""
+    data = payload.get("data") or {}
+    if not isinstance(data, dict) or not data.get("finalized"):
+        return None
+    analysis_data = data.get("analysis_data") or {}
+    if not isinstance(analysis_data, dict):
+        return None
+    themes_raw = analysis_data.get("themes") or []
+    if not isinstance(themes_raw, list):
+        return None
+
+    themes: list[dict[str, Any]] = []
+    unused: set[str] = set()
+    for theme in themes_raw:
+        if not isinstance(theme, dict):
+            continue
+        name = theme.get("name")
+        if not name:
+            continue
+        themes.append(
+            {
+                "name": str(name).strip(),
+                "confidence": theme.get("confidence"),
+                "video_count": theme.get("video_count"),
+                "stable_key": theme.get("stable_key") or name,
+            }
+        )
+        for field_name in UNUSED_THEME_FIELDS:
+            if theme.get(field_name):
+                unused.add(field_name)
+    for field_name in UNUSED_MONITOR_FIELDS:
+        if analysis_data.get(field_name):
+            unused.add(field_name)
+
+    return VirloExtractionNote(
+        monitor_id=monitor_id,
+        themes=themes,
+        unused_fields_present=sorted(unused),
+        endpoints_called=endpoints_called or [],
+    )
+
+
+def write_extraction_note(run_dir: Path, note: VirloExtractionNote) -> Path:
+    path = Path(run_dir) / VIRLO_EXTRACTION_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(note.to_yaml_dict(), allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def load_extraction_note(run_dir: Path) -> dict[str, Any] | None:
+    """Read back a previously-written ``virlo_extraction.yaml``, or
+    ``None`` if this run never wrote one (old engine version, or Virlo was
+    disabled/not queried this run) -- the process summary's preferred,
+    cheapest source for §3's Virlo block, before it falls back to
+    re-parsing a raw payload file."""
+    path = Path(run_dir) / VIRLO_EXTRACTION_FILENAME
+    if not path.exists():
+        return None
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else None
 
 
 def _read_api_key(key_path: Path) -> tuple[str | None, str | None]:
@@ -105,6 +220,7 @@ def collect(
     items: list[RawItem] = []
     calls_made = 0
     degrade_reasons: list[str] = []
+    endpoints_called: list[dict[str, str]] = []
 
     # -- 1. GET /v1/trends/digest (primary, confirmed) ----------------------
     digest_outcome = guarded_fetch(
@@ -128,13 +244,15 @@ def collect(
     if digest_outcome.skipped_reason == "denied":
         return CollectorRunResult(source=SOURCE, outcome="skip", degrade_reason="special-category deny-list", items=[], calls_made=0)
     if digest_outcome.skipped_reason == "idempotent-hit":
-        pass  # already captured today; no new items from this endpoint, keep going
+        endpoints_called.append({"endpoint": DIGEST_ENDPOINT, "status": "already captured today — fetch skipped"})
     elif digest_outcome.body is None:
         if digest_outcome.skipped_reason not in ("budget-exhausted", "circuit-open"):
             calls_made += 1
         degrade_reasons.append(digest_outcome.error or "trends digest endpoint unavailable")
+        endpoints_called.append({"endpoint": DIGEST_ENDPOINT, "status": f"unavailable — {degrade_reasons[-1]}"})
     else:
         calls_made += 1
+        endpoints_called.append({"endpoint": DIGEST_ENDPOINT, "status": "fetched this run"})
         if digest_outcome.stale_payload:
             degrade_reasons.append("stale payload suspected (trends digest)")
         try:
@@ -163,15 +281,18 @@ def collect(
         budget=budget,
         extra_headers=auth_headers,
     )
+    agent_endpoint = AGENT_ENDPOINT_TEMPLATE.format(monitor_id=monitor_id)
     if agent_outcome.skipped_reason == "idempotent-hit":
-        pass
+        endpoints_called.append({"endpoint": agent_endpoint, "status": "already captured today — fetch skipped"})
     elif agent_outcome.body is None:
         if agent_outcome.skipped_reason not in ("budget-exhausted", "circuit-open", "denied"):
             calls_made += 1
         if agent_outcome.skipped_reason != "denied":
             degrade_reasons.append(agent_outcome.error or "agent monitor endpoint unavailable")
+            endpoints_called.append({"endpoint": agent_endpoint, "status": f"unavailable — {degrade_reasons[-1]}"})
     else:
         calls_made += 1
+        endpoints_called.append({"endpoint": agent_endpoint, "status": "fetched this run"})
         if agent_outcome.stale_payload:
             degrade_reasons.append("stale payload suspected (agent monitor)")
         try:
@@ -183,6 +304,22 @@ def collect(
             items.extend(parsed)
             if reason:
                 degrade_reasons.append(reason)
+
+            # W8-8: persist the small per-run extraction note (theme names +
+            # confidence + video_count, plus the names of richer fields the
+            # pipeline still discards at normalization time) alongside
+            # normalization -- only possible when the payload was actually
+            # parsed fresh this run (a same-day cache hit above never
+            # reaches this branch; the process summary's own raw-payload
+            # fallback covers that case instead). Best-effort: a malformed
+            # run_dir or write failure never fails collection.
+            if ctx.run_dir is not None:
+                try:
+                    note = build_extraction_note(payload, monitor_id=monitor_id, endpoints_called=endpoints_called)
+                    if note is not None:
+                        write_extraction_note(ctx.run_dir, note)
+                except OSError:
+                    pass
 
     outcome_class = "degraded" if degrade_reasons else "ok"
     return CollectorRunResult(

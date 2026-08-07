@@ -27,6 +27,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -225,6 +226,12 @@ class CollectContext:
     run_date: str
     theme: str
     stage: str = "collection"
+    # W8-8: the run directory, so a collector that wants to persist a small
+    # per-run extraction note (``collectors/virlo.py``'s
+    # ``virlo_extraction.yaml``, read by the process summary) knows where to
+    # write it. ``None`` in every existing test/collector that never needed
+    # a run-scoped side artifact -- optional and backward compatible.
+    run_dir: Path | None = None
 
 
 @dataclass

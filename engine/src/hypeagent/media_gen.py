@@ -839,7 +839,7 @@ class MediaGenerator:
             row = self.store.insert_media_intent(
                 run_id=self.run_id, route_id=route.route_id, model_string=route.model_string,
                 requested_aspect=self.config.aspect_ratio, requested_output_format=self.config.output_format,
-                prompt_sha256=prompt_sha256(prompt), expected_cost_credits=route.price_credits,
+                prompt_sha256=prompt_sha256(prompt), prompt_full=prompt, expected_cost_credits=route.price_credits,
                 expected_cost_usd=route.price_usd, **identity_kwargs,
             )
         except MediaIntentAlreadyExists:
@@ -960,7 +960,7 @@ class MediaGenerator:
         _write_provenance_yaml(
             self.pack_media_dir, row=row, delivered_state=delivered_state, delivered_model=delivered_model,
             checksum=outcome.checksum_sha256, observed_cost_usd=observed_usd, image_path=dest_path,
-            registry=self.registry,
+            registry=self.registry, prompt_full=row.prompt_full,
         )
         return None
 
@@ -1023,9 +1023,17 @@ def _write_provenance_yaml(
     observed_cost_usd: float | None,
     image_path: Path,
     registry: ModelRegistry,
+    prompt_full: str | None = None,
 ) -> None:
     """Per-asset provenance record (§5.6/§12.2), stored beside the image.
-    Provider URLs are never written here or anywhere else in the pack."""
+    Provider URLs are never written here or anywhere else in the pack.
+
+    ``prompt_full`` (W8-8) is the complete, exact prompt sent to the image
+    model -- own-authored content (the copy asset's ``image_brief`` plus the
+    injected negative constraints from :func:`compose_prompt`), not
+    third-party text, so unlike the trace's own redaction rule (sha256 +
+    length only, RUN_TRACE_SPEC §3) it is safe and useful to keep in full
+    here, beside the image it produced."""
     doc = {
         "asset_id": f"{row.cluster_key}_{row.asset_slot}",
         "cluster_key": row.cluster_key,
@@ -1041,6 +1049,8 @@ def _write_provenance_yaml(
         "observed_cost_usd": observed_cost_usd,
         "image_path": str(image_path),
         "prompt_pattern_version": row.prompt_pattern_version,
+        "prompt_sha256": row.prompt_sha256,
+        "prompt_full": prompt_full,
         "attempt": row.attempt,
         "created_at": row.created_at,
         "logo_overlay": "deferred to a later phase — this pack carries the raw generated image only",

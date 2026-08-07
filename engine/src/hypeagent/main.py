@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from hypeagent import __version__ as ENGINE_VERSION
-from hypeagent import render_trace, resume_state as resume_state_module, run_identity, run_ledger, stages
+from hypeagent import process_summary, render_trace, resume_state as resume_state_module, run_identity, run_ledger, stages
 from hypeagent.config_load import ConfigError
 from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
 from hypeagent.store import Store
@@ -66,6 +66,42 @@ def _delete_key_mode(argv: Sequence[str]) -> int:
     )
     for path in report.packs_rewritten:
         print(f"  rewrote pack file: {path}")
+    return 0
+
+
+def _summarize_mode(argv: Sequence[str]) -> int:
+    """``python -m hypeagent --summarize <run_id>`` (RUN_TRACE_SPEC.md §6,
+    W8-8): (re)generate ``logs/runs/<run_id>/process_summary.md`` from the
+    persisted facts already on disk for that run (``trace.jsonl``,
+    ``resume_state.yaml``, the spend ledger, provenance YAMLs,
+    ``copy_requests``/``copy_responses``) -- works for any existing run,
+    including one produced by an older engine version that never persisted
+    some of the newer fields (those lines degrade to an explicit
+    "not recorded by this engine version" rather than failing outright).
+
+    Refuses, with the same ``EXIT_RESUME_TARGET_NOT_FOUND`` code
+    ``--resume`` uses for "not a valid run_id", when no ``trace.jsonl``
+    exists for the given run_id -- there is nothing to summarize."""
+    if not argv:
+        print("usage: python -m hypeagent --summarize <run_id>", file=sys.stderr)
+        return 2
+    run_id = argv[0]
+
+    repo_root = Path.cwd()
+    config_dir = repo_root / "config"
+    logs_dir = repo_root / "logs"
+    run_dir = logs_dir / "runs" / run_id
+    trace_path = run_dir / "trace.jsonl"
+
+    if not run_dir.is_dir() or not trace_path.exists():
+        print(
+            f"cannot summarize {run_id!r}: no run directory with a trace.jsonl found at {trace_path}",
+            file=sys.stderr,
+        )
+        return EXIT_RESUME_TARGET_NOT_FOUND
+
+    path = process_summary.generate_process_summary(run_id, config_dir=config_dir, logs_dir=logs_dir)
+    print(f"wrote {path}")
     return 0
 
 
@@ -244,6 +280,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args and args[0] == "--resume":
         return _resume_mode(args[1:])
+
+    if args and args[0] == "--summarize":
+        return _summarize_mode(args[1:])
 
     repo_root = Path.cwd()
     config_dir = repo_root / "config"

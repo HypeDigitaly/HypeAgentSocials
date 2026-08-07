@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from hypeagent import brand_truth, copy_gen, media_gen, packaging, resume_state as resume_state_module, spin as spin_module
+from hypeagent import brand_truth, copy_gen, media_gen, packaging, process_summary, resume_state as resume_state_module, spin as spin_module
 from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
@@ -169,6 +169,7 @@ def stage_collection(ctx: RunContext, trace: TraceWriter) -> StageResult:
         run_date=ctx.run_date,
         theme=ctx.theme_name,
         stage="collection",
+        run_dir=ctx.logs_dir / "runs" / ctx.run_id,
     )
 
     sources = ctx.research.sources
@@ -275,6 +276,13 @@ def stage_collection(ctx: RunContext, trace: TraceWriter) -> StageResult:
         extra={
             "excluded_special_category": excluded_count,
             "degraded_sources": [n.source for n in degraded_sources],
+            # W8-8: per-source breakdown, so the process summary's §3 can
+            # show "source -> items fetched" without re-deriving it from
+            # scratch. Going-forward only -- a trace written before this
+            # field existed simply lacks the key, and the summarizer
+            # degrades that one line gracefully.
+            "calls_made_by_source": {r.source: r.calls_made for r in results},
+            "items_fetched_by_source": {r.source: len(r.items) for r in results},
         },
     )
 
@@ -789,10 +797,36 @@ def _run_stage_list(ctx: RunContext, trace: TraceWriter, stage_list: tuple[tuple
     return ExitClass.SUCCESS.value
 
 
+def _generate_process_summary_best_effort(ctx: RunContext, trace: TraceWriter, exit_class: str) -> None:
+    """W8-8: the process summary is generated at the end of every run and
+    every ``--resume``, best-effort. A summarizer crash must never change
+    the run's exit class -- it is caught here, logged as an ``error`` trace
+    event (so it is visible without ever affecting what ``main.py`` writes
+    to the run ledger or returns as the process exit code), and swallowed."""
+    try:
+        process_summary.generate_process_summary(
+            ctx.run_id,
+            config_dir=ctx.config_dir,
+            logs_dir=ctx.logs_dir,
+            secrets_dir=ctx.secrets_dir,
+            exit_class=exit_class,
+        )
+    except Exception as exc:  # noqa: BLE001 - deliberately broad: never fail the run for this
+        trace.error(
+            "digest",
+            error_class=type(exc).__name__,
+            message=f"process summary generation failed: {exc}",
+            retried=False,
+            disposition="process summary skipped — run exit class unaffected",
+        )
+
+
 def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
     """Run all canonical stages in order. See :func:`_run_stage_list` for
     the exit-class mapping and error/crash semantics."""
-    return _run_stage_list(ctx, trace, CANONICAL_STAGES)
+    exit_class = _run_stage_list(ctx, trace, CANONICAL_STAGES)
+    _generate_process_summary_best_effort(ctx, trace, exit_class)
+    return exit_class
 
 
 def prepare_resume_context(ctx: RunContext) -> None:
@@ -821,4 +855,6 @@ def resume_pipeline(ctx: RunContext, trace: TraceWriter, resume_state: resume_st
     ctx.extra["cs_holds"] = resume_state.cs_holds
     ctx.extra["degraded_sources"] = resume_state.degraded_sources
     resume_stages = tuple((name, fn) for name, fn in CANONICAL_STAGES if name in RESUME_STAGE_NAMES)
-    return _run_stage_list(ctx, trace, resume_stages)
+    exit_class = _run_stage_list(ctx, trace, resume_stages)
+    _generate_process_summary_best_effort(ctx, trace, exit_class)
+    return exit_class

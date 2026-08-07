@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from hypeagent.collectors import virlo
 from hypeagent.collectors.base import CollectContext, FetchResponse, FixtureFetcher
 from hypeagent.store import SourceDenyList, Store
@@ -18,13 +20,14 @@ def _fr(path: Path) -> FetchResponse:
     return FetchResponse(status=200, headers={}, body=path.read_bytes(), latency_ms=4)
 
 
-def _ctx(tmp_path, fetcher, run_id="2026-08-10_v1v1"):
+def _ctx(tmp_path, fetcher, run_id="2026-08-10_v1v1", *, run_dir=None):
     store = Store.open(tmp_path / "logs", tmp_path / "secrets")
     trace = TraceWriter(tmp_path / "logs" / "trace.jsonl", run_id)
     deny_list = SourceDenyList(denied_sources=set(), denied_communities=set())
     ctx = CollectContext(
         store=store, trace=trace, fetcher=fetcher, deny_list=deny_list,
         run_id=run_id, run_date=run_id.split("_")[0], theme="hypedigitaly",
+        run_dir=run_dir,
     )
     return ctx, store, trace
 
@@ -147,3 +150,88 @@ class TestVirloCollector:
         finally:
             store.close()
             trace.close()
+
+
+class TestVirloExtractionNote:
+    """W8-8: a small per-run note naming the themes actually extracted
+    (name/confidence/video_count/stable_key) and the richer fields present
+    on the raw payload but not yet used by copy — so the process summary's
+    §3 can read it back without re-parsing the raw payload itself."""
+
+    def test_collect_writes_extraction_note_when_run_dir_set(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        run_dir = tmp_path / "logs" / "runs" / "2026-08-10_v1v1"
+        fetcher = FixtureFetcher(responses={
+            "v1/trends/digest": _fr(FIXTURES / "virlo_trends_digest.json"),
+            "v1/agents/9c96fddf-dc35-4be0-bbd9-12f4d22aea12": _fr(FIXTURES / "virlo_agent_monitor.json"),
+        })
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_dir=run_dir)
+        try:
+            result = virlo.collect(ctx, family="short_form_trends", key_path=key_path)
+            assert result.outcome == "ok"
+        finally:
+            store.close()
+            trace.close()
+
+        note_path = run_dir / virlo.VIRLO_EXTRACTION_FILENAME
+        assert note_path.exists()
+        doc = yaml.safe_load(note_path.read_text(encoding="utf-8"))
+        assert doc["monitor_id"] == "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"
+        names = {t["name"] for t in doc["themes"]}
+        assert "AI Agents for Business Automation and Outbound Sales" in names
+        assert "Claude Code for Development and Automation" in names
+        first = next(t for t in doc["themes"] if t["name"].startswith("AI Agents for Business"))
+        assert first["confidence"] == 0.92
+        assert first["video_count"] == 33
+        assert first["stable_key"] == "ai-agents-business-automation-outbound-sales"
+        # The fixture's themes carry "tactics" and "why_it_works" -- named,
+        # never their text.
+        assert "tactics" in doc["unused_fields_present_in_raw_payload"]
+        assert "why_it_works" in doc["unused_fields_present_in_raw_payload"]
+        for theme in doc["themes"]:
+            assert "tactics" not in theme
+            assert "why_it_works" not in theme
+        assert any("fetched this run" in e["status"] for e in doc["endpoints_called"])
+
+    def test_no_run_dir_never_writes_a_note(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        fetcher = FixtureFetcher(responses={
+            "v1/trends/digest": _fr(FIXTURES / "virlo_trends_digest.json"),
+            "v1/agents/9c96fddf-dc35-4be0-bbd9-12f4d22aea12": _fr(FIXTURES / "virlo_agent_monitor.json"),
+        })
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_dir=None)
+        try:
+            virlo.collect(ctx, family="short_form_trends", key_path=key_path)
+        finally:
+            store.close()
+            trace.close()
+        assert not (tmp_path / "logs" / "runs").exists()
+
+    def test_cache_hit_second_call_does_not_rewrite_note(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        run_dir = tmp_path / "logs" / "runs" / "2026-08-10_v1v1"
+        fetcher = FixtureFetcher(responses={
+            "v1/trends/digest": _fr(FIXTURES / "virlo_trends_digest.json"),
+            "v1/agents/9c96fddf-dc35-4be0-bbd9-12f4d22aea12": _fr(FIXTURES / "virlo_agent_monitor.json"),
+        })
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_dir=run_dir)
+        try:
+            virlo.collect(ctx, family="short_form_trends", key_path=key_path)
+            note_path = run_dir / virlo.VIRLO_EXTRACTION_FILENAME
+            first_bytes = note_path.read_bytes()
+
+            result2 = virlo.collect(ctx, family="short_form_trends", key_path=key_path)
+            assert result2.items == []
+            assert note_path.read_bytes() == first_bytes
+        finally:
+            store.close()
+            trace.close()
+
+    def test_load_extraction_note_returns_none_when_absent(self, tmp_path):
+        assert virlo.load_extraction_note(tmp_path / "no_such_run") is None
+
+    def test_build_extraction_note_returns_none_when_not_finalized(self):
+        import json
+
+        payload = json.loads((FIXTURES / "virlo_agent_monitor_not_finalized.json").read_text(encoding="utf-8"))
+        assert virlo.build_extraction_note(payload, monitor_id="x") is None
