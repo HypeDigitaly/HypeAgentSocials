@@ -145,57 +145,44 @@ The goal's completion criterion is the **test run**, and the test run defines th
       .env + .env.example (API_KEYS.txt deleted), Virlo monitor v2 with data-intelligence
       created (`623203a9-c09c-4763-85e0-1c177b5af760`, $1.50/weekly cycle — deactivate old
       `9c96fddf-…` once v2 finalizes).
-- [ ] **Q1 — .env loader + rich Virlo collection** (builder in flight): env>-.env->legacy
+- [x] **Q1 — .env loader + rich Virlo collection** (builder in flight): env>-.env->legacy
       precedence; free /videos + /slideshows sub-path reads (page cap, one pass);
       virlo_corpus.yaml (full tactics/why_it_works/panel_texts, 30-day retention regime);
       top-K image download for vision analysis; digest read default OFF; monitor_ids
       fallback list. → verify, commit, /compact if needed.
-- [ ] **Q2 — OpenRouter LLM client** (`anthropic/claude-sonnet-5`, key OPENROUTER_API_KEY
+- [x] **Q2 — OpenRouter LLM client** (`anthropic/claude-sonnet-5`, key OPENROUTER_API_KEY
       in .env): system prompts, JSON output w/ parse-retry, vision content-parts, per-run
       ceilings, llm wallet in spend ledger + trace. Offline-tested via FixtureFetcher.
-- [ ] **Q3 — LLM node graph**: N-A trend/visual analyst (→ analysis/viral_playbook.yaml),
+- [x] **Q3 — LLM node graph**: N-A trend/visual analyst (→ analysis/viral_playbook.yaml),
       N-C copywriter (LinkedIn 7-beat / IG-TikTok caption + per-slide carousel texts;
       claim gate over every slide; interactive-file fallback kept), N-D image-prompt
       crafter (full prompt → provenance).
-- [ ] **Q4 — media upgrade**: Nano Banana 2 standard tier (verify price live), remove
+- [x] **Q4 — media upgrade**: Nano Banana 2 standard tier (verify price live), remove
       draft-only hard-raises, per-slide ledger identity `destination:slideNN`,
       PROMPT_PATTERN_VERSION → 2, W8-9 constraint set, caps $3/run $6/day; N-E vision-QA
       readback gate (text match + archetype; 1 retry then held). Kill/resume test on a
       carousel (no double-billing).
-- [ ] **Q5 — brand assets**: pull HypeLead v2 pack essentials (logos, wordmarks, 7 post-*
+- [x] **Q5 — brand assets**: pull HypeLead v2 pack essentials (logos, wordmarks, 7 post-*
       templates) from Notion into assets/brand/ for prompt grounding.
-### Q6 STATUS SNAPSHOT (2026-08-07, pre-compaction — read this first after /compact)
-- Q1–Q5 COMMITTED (through 98f74ce): .env, rich Virlo collection, OpenRouter LLM client,
-  N-A/N-C/N-D nodes, NB2 standard tier (LIVE price 8cr/$0.04), per-slide ledger, N-E QA,
-  brand assets. 283/283 tests at last commit.
-- **Full live test run DONE + ANALYZED: `2026-08-07_e4d8`** (exit 0, 12m09s, real cost
-  ~$1.06 = $0.62 LLM + $0.44 images/88 credits, balance 10056→9968). Output quality:
-  major leap — editorial-carousel archetype achieved, 7-beat LinkedIn copy w/ honest
-  trend attribution, gates + QA + per-slide billing all proven live.
-- **6 defects found (analysis in chat + evidenced in the run dir): (1) max_tokens 1500
-  truncation — 2 LinkedIn assets fell to held, carousels 2-4 slides not 6-10, slide_04
-  prompt cut mid-sentence → hallucinated filler text in image; (2) per_run_call_cap 20
-  starved N-E QA (4 of 11 images QA'd, broken slide among skipped); (3) instruction
-  leakage in images ('UII Label' pill, literal 'Montserrat SemiBold', quoted headline);
-  (4) QA rubric too lenient (passed duplicated phrase); (5) media spend events record
-  CUMULATIVE → summary reported $2.64 vs real $0.44 (reporting only); (6) missing
-  end-card/6-slide validation.**
-- **IN FLIGHT: fix builder agent** (python-pro, background) addressing all 6: per-node
-  max_tokens (analyst 4000/copy 4000/craft 6000/QA 1000), finish_reason truncation
-  detection (never accept truncated output), crafted-prompt completeness validation,
-  call cap 60 + qa_reserved_calls 16, prompt-hygiene rules, strict QA rubric, spend
-  delta fix, slide-count validation. On its completion: pytest, secret scan, commit.
-- **THEN the Q6(c) flow re-audit** (not started): judge the flow structure against run
-  e4d8's evidence, update FLOW_MAP.md + artifact
-  https://claude.ai/code/artifact/576e658b-81ea-4d1e-bc19-3fcdf99312f3 (favicon 🗺️,
-  same URL), propose structural improvements to the operator. Optionally re-run a
-  test after fixes to confirm (cheap: ~$1).
-- Known open oddities for the re-audit: ranking rescores stale Google News candidates
-  (566 noise rows), spin bands all "Low", LinkedIn hero got decorative toggle switches,
-  analyst prompt was 70k tokens (trim), platform_norms "not observed in corpus" for
-  LinkedIn/IG (corpus is TikTok-heavy — inspiration folder fills the gap).
+### Q6 COMPLETION RECORD (2026-08-07)
+- Q1–Q5 committed through `98f74ce`; **defect-fix round committed as `539e808`**
+  (316/316 tests, offline-only, secret-scanned): per-node max_tokens
+  (4000/4000/6000/1000), finish_reason truncation detection (retry w/ doubled budget →
+  LlmTruncatedError degrade), crafted-prompt completeness validation + compose_prompt
+  fallback, call cap 60 / usd cap $2.00 / qa_reserved_calls 16, N-D prompt-hygiene
+  rules, strict exact-match QA rubric, DELTA spend events (sum==ledger==balance delta,
+  test-enforced), carousel 6–10-slide+end_card validation (1 retry, accept-with-note).
+- Live run `2026-08-07_e4d8` (exit 0, 12m09s, real cost ~$1.06, balance 10056→9968,
+  11 images billed exactly once) was the evidence base: quality leap confirmed, 6
+  defects found, all fixed above.
+- **Q6(c) re-audit DONE**: verdict + 6 ranked recommendations in FLOW_MAP.md §7
+  (artifact republished, same URL). Backbone confirmed structurally sound — defects
+  were parameter/validation class, not structure class. Open 🟠 proposals awaiting
+  operator: R1 ranking freshness window, R2 analysis-after-ranking reorder, R3
+  scorecard band calibration, R4 playbook platform-norm polish, R5 (deferred) parallel
+  image submission, R6 ~$1 live confirmation re-run.
 
-- [ ] **Q6 — FINISH (operator directive 2026-08-07): test thoroughly, then re-audit the
+- [x] **Q6 — FINISH (operator directive 2026-08-07): test thoroughly, then re-audit the
       flow itself.** (a) Full EN test run: 1 LinkedIn post + hero image, 1 IG carousel
       (~6 slides + caption), real Virlo + OpenRouter + Kie, ≤$2.50. (b) Analyze results:
       process_summary.md, trace, spend ledger, QA verdicts, pack quality vs the
