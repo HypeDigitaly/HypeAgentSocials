@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -21,6 +22,106 @@ from typing import Any, Literal
 import yaml
 
 ResolutionState = Literal["resolved", "resolved-empty"]
+
+# ---------------------------------------------------------------------------
+# W8-9 Phase 1: secrets resolution — real environment variable > repo-root
+# `.env` > legacy `secrets/<file>.key` (deprecated but still supported).
+#
+# The engine never requires `.env` to exist: every call site that already
+# tolerated a missing/empty legacy key file (fail-closed-to-degrade, never a
+# hard run failure) keeps that exact posture — `.env` and the environment
+# are simply two additional, higher-precedence places to look before falling
+# back to the file. Nothing here raises; unresolved always means
+# ``(None, None)``, identical in effect to today's "key file missing".
+# ---------------------------------------------------------------------------
+
+DOTENV_FILENAME = ".env"
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    """Parse a tiny stdlib ``.env`` file: ``KEY=VALUE`` lines, blank lines
+    and ``#``-comments ignored, no quoting games (spec: "no quoting games
+    needed"). Returns ``{}`` for a missing, unreadable, or empty file —
+    never raises; ``.env`` is optional infrastructure, not a required
+    config artifact in the ``load_yaml_config`` fail-closed sense."""
+    values: dict[str, str] = {}
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return values
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        values[key] = value.strip()
+    return values
+
+
+def find_dotenv(config_dir: Path, *, explicit_path: Path | None = None) -> Path | None:
+    """Locate the repo-root ``.env`` file robustly.
+
+    ``explicit_path`` (an operator- or ``RunContext``-supplied override)
+    wins outright when given, existing-or-not. Otherwise walks upward from
+    ``config_dir`` (inclusive) through every parent directory, returning the
+    first ``.env`` found — in production ``config_dir`` is ``<repo_root>/
+    config``, so the first hop (``config_dir.parent``) already finds it; the
+    walk is only extra robustness for a differently-nested ``config_dir``.
+    Returns ``None`` when nothing is found anywhere up the tree (the normal
+    case in tests, whose ``tmp_path`` trees never contain a stray ``.env``).
+    """
+    if explicit_path is not None:
+        return explicit_path if explicit_path.exists() else None
+    start = Path(config_dir)
+    candidates = [start, *start.parents]
+    for directory in candidates:
+        candidate = directory / DOTENV_FILENAME
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_secret(
+    name: str,
+    *,
+    config_dir: Path,
+    legacy_path: Path | None,
+    env_path: Path | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve one named secret by precedence: real environment variable >
+    ``.env`` value > legacy ``secrets/<file>.key`` file content (deprecated,
+    still supported). Returns ``(value, source)`` where ``source`` is one of
+    ``"environment"``, ``"dotenv"``, ``"legacy-key-file"``, or ``(None,
+    None)`` when nothing resolves anywhere — the same fail-closed-to-degrade
+    signal every existing key-file reader already treats as "missing".
+
+    Never raises: an unreadable legacy file degrades to unresolved exactly
+    like a missing one (the caller already has its own message for that).
+    """
+    env_value = os.environ.get(name)
+    if env_value:
+        return env_value.strip(), "environment"
+
+    dotenv_path = find_dotenv(config_dir, explicit_path=env_path)
+    if dotenv_path is not None:
+        dotenv_value = parse_env_file(dotenv_path).get(name)
+        if dotenv_value:
+            return dotenv_value.strip(), "dotenv"
+
+    if legacy_path is not None:
+        legacy_path = Path(legacy_path)
+        if legacy_path.exists():
+            try:
+                legacy_value = legacy_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                return None, None
+            if legacy_value:
+                return legacy_value, "legacy-key-file"
+
+    return None, None
 
 
 class ConfigError(Exception):
@@ -149,6 +250,17 @@ class SourceConfig:
     queries: dict[str, list[str]] = field(default_factory=dict)
     key_path: str | None = None
     monitor_id: str | None = None
+    # W8-9 Phase 2 (Virlo only; safe no-op defaults for every other source):
+    # an ordered monitor fallback list (v2 intelligence-enabled monitor
+    # first, falling through to the next entry when the current one has no
+    # finalized run yet — collectors/virlo.py's ``collect()``), the trends
+    # digest's opt-in-at-config-level default (the $0.25 read stays off
+    # unless a theme explicitly turns it on), and the two Phase-2 collection
+    # caps (sub-path pagination, media download count).
+    monitor_ids: list[str] = field(default_factory=list)
+    trends_digest_enabled: bool = False
+    subpath_page_cap: int = 6
+    media_download_cap: int = 24
 
 
 @dataclass(frozen=True)
@@ -216,6 +328,10 @@ def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResear
             queries={k: list(v or []) for k, v in (cfg.get("queries") or {}).items()},
             key_path=cfg.get("key_path"),
             monitor_id=cfg.get("monitor_id"),
+            monitor_ids=list(cfg.get("monitor_ids") or ([cfg["monitor_id"]] if cfg.get("monitor_id") else [])),
+            trends_digest_enabled=bool(cfg.get("trends_digest_enabled", False)),
+            subpath_page_cap=int(cfg.get("subpath_page_cap", 6)),
+            media_download_cap=int(cfg.get("media_download_cap", 24)),
         )
 
     ranking_block = data.get("ranking") or {}

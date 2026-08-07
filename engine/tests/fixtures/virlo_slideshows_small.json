@@ -1,0 +1,70 @@
+{
+  "data": {
+    "agent_id": "623203a9-c09c-4763-85e0-1c177b5af760",
+    "agent_name": "AI Trends Tracker v2 (intelligence)",
+    "total": 2,
+    "limit": 100,
+    "offset": 0,
+    "slideshows": [
+      {
+        "id": "fake-slideshow-id-1",
+        "url": "https://instagram.example.com/p/fakeslideshowone/",
+        "description": "Fake caption: 5 AI tools that automate your outbound in 2026",
+        "platform": "instagram",
+        "views": 890000,
+        "likes": 52000,
+        "shares": 4100,
+        "comments": 610,
+        "bookmarks": 15000,
+        "publish_date": "2026-07-15T09:00:00Z",
+        "author": {"username": "fakecarouselcreator", "verified": true, "followers": 88000, "avatar_url": "https://cdn.example.com/avatars/fakecarouselcreator.webp"},
+        "hashtags": ["aitools", "outbound"],
+        "thumbnail_url": "https://cdn.example.com/thumbs/fake-slideshow-id-1.jpg",
+        "keyword_found_by": "AI tools",
+        "images": [
+          {"image_url": "https://cdn.example.com/panels/fake-slideshow-id-1/panel1.webp", "position": 1},
+          {"image_url": "https://cdn.example.com/panels/fake-slideshow-id-1/panel2.webp", "position": 2},
+          {"image_url": "https://cdn.example.com/panels/fake-slideshow-id-1/panel3.webp", "position": 3}
+        ],
+        "intelligence_status": "ready",
+        "intelligence": {
+          "hook_text": "5 AI tools nobody is talking about yet",
+          "summary": "A ranked list of five AI tools for outbound automation, each panel showing one tool with a one-line benefit.",
+          "panel_texts": [
+            "1. AI agent that qualifies leads",
+            "2. Voice AI that books meetings",
+            "3. AI that writes cold emails",
+            "4. AI that enriches lead data",
+            "5. AI that drafts follow-ups"
+          ],
+          "panel_text_full": "1. AI agent that qualifies leads 2. Voice AI that books meetings 3. AI that writes cold emails 4. AI that enriches lead data 5. AI that drafts follow-ups",
+          "narrative_arc": "listicle_countdown",
+          "text_density": "high",
+          "image_count": 3
+        }
+      },
+      {
+        "id": "fake-slideshow-id-2",
+        "url": "https://instagram.example.com/p/fakeslideshowtwo/",
+        "description": "Fake caption: how we automated our entire sales funnel",
+        "platform": "instagram",
+        "views": 210000,
+        "likes": 9800,
+        "shares": 500,
+        "comments": 140,
+        "bookmarks": 2200,
+        "publish_date": "2026-07-10T09:00:00Z",
+        "author": {"username": "fakecarouselcreatortwo", "verified": false, "followers": 15000, "avatar_url": "https://cdn.example.com/avatars/fakecarouselcreatortwo.webp"},
+        "hashtags": ["salesfunnel"],
+        "thumbnail_url": "https://cdn.example.com/thumbs/fake-slideshow-id-2.jpg",
+        "keyword_found_by": "sales automation",
+        "images": [
+          {"image_url": "https://cdn.example.com/panels/fake-slideshow-id-2/panel1.webp", "position": 1},
+          {"image_url": "https://cdn.example.com/panels/fake-slideshow-id-2/panel2.webp", "position": 2}
+        ],
+        "intelligence_status": "disabled",
+        "intelligence": null
+      }
+    ]
+  }
+}

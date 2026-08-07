@@ -1,0 +1,53 @@
+{
+  "data": {
+    "id": "623203a9-c09c-4763-85e0-1c177b5af760",
+    "name": "AI Trends Tracker v2 (intelligence)",
+    "is_recurring": true,
+    "active": true,
+    "finalized": true,
+    "data_intelligence_enabled": true,
+    "analysis_data": {
+      "themes": [
+        {
+          "name": "AI Agents for Business Automation and Outbound Sales",
+          "tactics": ["show AI agents qualifying leads", "demonstrate automated outbound sequences", "before/after revenue comparisons"],
+          "confidence": 0.92,
+          "stable_key": "ai-agents-business-automation-outbound-sales",
+          "video_count": 33,
+          "why_it_works": "The idea of AI agents handling sales outreach autonomously resonates with small business owners who cannot afford a full SDR team.",
+          "evidence_video_ids": ["fake-video-id-1", "fake-video-id-2"]
+        },
+        {
+          "name": "Claude Code for Development and Automation",
+          "tactics": ["tutorials using Claude in an IDE", "side-by-side model comparisons"],
+          "confidence": 0.88,
+          "stable_key": "claude-code-for-development-and-automation",
+          "video_count": 24,
+          "why_it_works": "Developers want practical automation tutorials they can replicate in an afternoon.",
+          "evidence_video_ids": ["fake-video-id-3"]
+        }
+      ],
+      "viral_tactics": [
+        "Demonstrate specific, step-by-step AI tool usage for tangible results.",
+        "Showcase AI's ability to automate complex tasks, framing it as 'AI employees'.",
+        "Offer direct comparisons between leading AI models to help users decide."
+      ],
+      "top_10_breakdown": {
+        "intro_header": "Top performing videos this cycle",
+        "intro_subheader": "Ranked by weighted virality",
+        "videos": [
+          {"video_id": "fake-video-id-1", "description": "Fake caption describing an AI agent qualifying leads automatically."},
+          {"video_id": "fake-video-id-3", "description": "Fake caption about using Claude Code to ship a feature in ten minutes."}
+        ]
+      },
+      "connecting_thread": "These trends collectively demonstrate strong demand for practical, actionable AI solutions that directly contribute to business growth.",
+      "key_highlight": "The dominant trend revolves around leveraging AI agents for business automation, lead generation, and productivity enhancements.",
+      "timing_analysis": {
+        "pattern": "Content performs well during evening hours for after-work consumption.",
+        "peak_hours": [20, 21, 11]
+      },
+      "overview": {"avg_virality": 0, "total_videos": 240}
+    },
+    "latest_run": {"status": "completed", "total_videos_inserted": 539}
+  }
+}

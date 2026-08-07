@@ -53,7 +53,8 @@ def _delete_key_mode(argv: Sequence[str]) -> int:
     repo_root = Path.cwd()
     logs_dir = repo_root / "logs"
     secrets_dir = repo_root / "secrets"
-    store = Store.open(logs_dir, secrets_dir)
+    config_dir = repo_root / "config"
+    store = Store.open(logs_dir, secrets_dir, config_dir=config_dir)
     try:
         report = store.delete_by_canonical_key(canonical_key)
     finally:

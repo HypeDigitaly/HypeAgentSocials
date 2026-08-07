@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from hypeagent import brand_truth, copy_gen, media_gen, packaging, process_summary, resume_state as resume_state_module, spin as spin_module
+from hypeagent import brand_truth, config_load, copy_gen, media_gen, packaging, process_summary, resume_state as resume_state_module, spin as spin_module
 from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
@@ -128,7 +128,7 @@ def stage_theme_load(ctx: RunContext, trace: TraceWriter) -> StageResult:
     _load_theme_and_config(ctx)
 
     secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
-    ctx.store = Store.open(ctx.logs_dir, secrets_dir)
+    ctx.store = Store.open(ctx.logs_dir, secrets_dir, config_dir=ctx.config_dir)
 
     expiry = ctx.store.run_expiry_job()
     trace.decision(
@@ -230,9 +230,14 @@ def stage_collection(ctx: RunContext, trace: TraceWriter) -> StageResult:
                 cctx,
                 family=virlo_cfg.family or "short_form_trends",
                 key_path=key_path,
+                config_dir=ctx.config_dir,
                 monitor_id=virlo_cfg.monitor_id or virlo.DEFAULT_MONITOR_ID,
+                monitor_ids=virlo_cfg.monitor_ids or None,
                 budget_max_calls=virlo_cfg.budget_max_calls,
                 circuit_breaker_threshold=virlo_cfg.circuit_breaker_threshold,
+                trends_digest_enabled=virlo_cfg.trends_digest_enabled,
+                subpath_page_cap=virlo_cfg.subpath_page_cap,
+                media_download_cap=virlo_cfg.media_download_cap,
             )
         )
 
@@ -583,7 +588,11 @@ def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
 
     secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
     key_path = Path(media_cfg.key_path) if media_cfg.key_path else (secrets_dir / "kie.key")
-    if not key_path.exists():
+    # W8-9 Phase 1: real environment variable > repo-root .env > this legacy
+    # key file (deprecated, still supported) — same fail-closed-to-degrade
+    # posture as before either way (§4.6: plan-only, never a hard failure).
+    api_key, _key_source = config_load.resolve_secret("KIE_API_KEY", config_dir=ctx.config_dir, legacy_path=key_path)
+    if api_key is None and not key_path.exists():
         trace.decision(
             "media",
             decision=f"Kie API key file missing at {key_path} — every gated-pass asset plans only, zero spend",
@@ -593,7 +602,6 @@ def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
         ctx.extra["media_asset_statuses"] = statuses
         return StageResult(outcome="ok", items_in=len(plans), items_out=len(statuses))
 
-    api_key = key_path.read_text(encoding="utf-8").strip()
     if not api_key:
         trace.decision(
             "media",
@@ -837,7 +845,7 @@ def prepare_resume_context(ctx: RunContext) -> None:
     to re-enter copy/media/packaging/digest."""
     _load_theme_and_config(ctx)
     secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
-    ctx.store = Store.open(ctx.logs_dir, secrets_dir)
+    ctx.store = Store.open(ctx.logs_dir, secrets_dir, config_dir=ctx.config_dir)
 
 
 def resume_pipeline(ctx: RunContext, trace: TraceWriter, resume_state: resume_state_module.ResumeState) -> str:

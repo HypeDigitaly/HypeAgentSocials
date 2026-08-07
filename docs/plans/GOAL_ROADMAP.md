@@ -134,6 +134,47 @@ The goal's completion criterion is the **test run**, and the test run defines th
   LLM judge halves of the gates (spin/voice/claim pass 2), video pipeline (Phase 3-full),
   Postiz draft delivery (Phase 6 gate — counsel re-ask fires once there, per W8-4).
 
+## CAMPAIGN W8-9 — quality overhaul (approved 2026-08-07; plan of record:
+## ~/.claude/plans/recursive-stargazing-sunrise.md; flow map: docs/architecture/FLOW_MAP.md)
+
+- [x] **Q0 — W8-8 process summary landed** (commits 2026-08-07): process_summary.md every
+      run + `--summarize` CLI + full prompts in provenance. 178/178 tests. Verified on 7ded.
+- [x] **Q0b — groundwork**: DECISION_LOG W8-8/W8-9 rows, brand_facts visual-policy
+      reversal (third-party logos/screenshots/people allowed; no fake screenshots of OUR
+      product UI), config/style_guide.yaml (inspiration-corpus distillation), FLOW_MAP.md,
+      .env + .env.example (API_KEYS.txt deleted), Virlo monitor v2 with data-intelligence
+      created (`623203a9-c09c-4763-85e0-1c177b5af760`, $1.50/weekly cycle — deactivate old
+      `9c96fddf-…` once v2 finalizes).
+- [ ] **Q1 — .env loader + rich Virlo collection** (builder in flight): env>-.env->legacy
+      precedence; free /videos + /slideshows sub-path reads (page cap, one pass);
+      virlo_corpus.yaml (full tactics/why_it_works/panel_texts, 30-day retention regime);
+      top-K image download for vision analysis; digest read default OFF; monitor_ids
+      fallback list. → verify, commit, /compact if needed.
+- [ ] **Q2 — OpenRouter LLM client** (`anthropic/claude-sonnet-5`, key OPENROUTER_API_KEY
+      in .env): system prompts, JSON output w/ parse-retry, vision content-parts, per-run
+      ceilings, llm wallet in spend ledger + trace. Offline-tested via FixtureFetcher.
+- [ ] **Q3 — LLM node graph**: N-A trend/visual analyst (→ analysis/viral_playbook.yaml),
+      N-C copywriter (LinkedIn 7-beat / IG-TikTok caption + per-slide carousel texts;
+      claim gate over every slide; interactive-file fallback kept), N-D image-prompt
+      crafter (full prompt → provenance).
+- [ ] **Q4 — media upgrade**: Nano Banana 2 standard tier (verify price live), remove
+      draft-only hard-raises, per-slide ledger identity `destination:slideNN`,
+      PROMPT_PATTERN_VERSION → 2, W8-9 constraint set, caps $3/run $6/day; N-E vision-QA
+      readback gate (text match + archetype; 1 retry then held). Kill/resume test on a
+      carousel (no double-billing).
+- [ ] **Q5 — brand assets**: pull HypeLead v2 pack essentials (logos, wordmarks, 7 post-*
+      templates) from Notion into assets/brand/ for prompt grounding.
+- [ ] **Q6 — FINISH (operator directive 2026-08-07): test thoroughly, then re-audit the
+      flow itself.** (a) Full EN test run: 1 LinkedIn post + hero image, 1 IG carousel
+      (~6 slides + caption), real Virlo + OpenRouter + Kie, ≤$2.50. (b) Analyze results:
+      process_summary.md, trace, spend ledger, QA verdicts, pack quality vs the
+      inspiration corpus. (c) THEN re-analyze the ENTIRE flow start-to-finish against
+      FLOW_MAP.md — is the structure optimal for the goal (value-packed, trend-grounded,
+      platform-native assets)? Propose structural improvements with evidence, update
+      FLOW_MAP.md + the artifact, and put the recommendation to the operator. The
+      campaign is NOT done at "tests pass" — it is done when the flow has been re-judged
+      against its results.
+
 ## Standing constraints that bind every milestone (do not re-derive)
 
 - Secrets: API_KEYS.txt is untracked, never committed, never logged; keys never in prompts.

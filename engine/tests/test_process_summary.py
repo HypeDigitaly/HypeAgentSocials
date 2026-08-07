@@ -44,6 +44,16 @@ def _write_config_with_virlo(tmp_path: Path) -> None:
         "      family: short_form_trends\n"
         "      circuit_breaker_threshold: 2\n"
         "      budget_max_calls: 4\n"
+        # This test exercises §3's theme-extraction block only (digest +
+        # single-monitor read, pre-W8-9-Phase-2 shape) -- explicitly opt
+        # back into the old always-on digest and opt OUT of the new
+        # sub-path/media-download surface, so this fixture config (which
+        # registers no /videos or /slideshows fixtures) keeps its exact
+        # pre-Phase-2 behavior rather than picking up the new SourceConfig
+        # defaults meant for production.
+        "      trends_digest_enabled: true\n"
+        "      subpath_page_cap: 0\n"
+        "      media_download_cap: 0\n"
         "ranking:\n"
     )
     theme_path.write_text(text.replace(anchor, replacement), encoding="utf-8")

@@ -239,3 +239,94 @@ class TestExpiryJob:
             assert store.get_signal(sig.canonical_key) is None
         finally:
             store.close()
+
+
+class TestRegisterRawArtifact:
+    """W8-9 Phase 2: a derived artifact (e.g. ``virlo_corpus.yaml``, a
+    downloaded media file) rides the SAME 30-day raw-payload retention job
+    that already covers HTTP payload bodies — no second expiry mechanism."""
+
+    def test_registered_artifact_is_deleted_after_30_days(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            artifact_path = tmp_path / "logs" / "runs" / "r1" / "virlo_corpus.yaml"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_text("monitor_id: abc\n", encoding="utf-8")
+            old_time = datetime.now().astimezone() - timedelta(days=31)
+
+            store.register_raw_artifact(
+                run_id="r1", run_date="2026-07-01", theme="hypedigitaly", source="virlo",
+                query_sig="corpus:abc", endpoint="virlo-corpus", path=artifact_path, now=old_time,
+            )
+            assert artifact_path.exists()
+
+            report = store.run_expiry_job()
+            assert report.raw_payloads_deleted == 1
+            assert not artifact_path.exists()
+        finally:
+            store.close()
+
+    def test_registered_artifact_survives_within_retention_window(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            artifact_path = tmp_path / "logs" / "runs" / "r1" / "virlo_corpus.yaml"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_text("monitor_id: abc\n", encoding="utf-8")
+
+            store.register_raw_artifact(
+                run_id="r1", run_date="2026-08-01", theme="hypedigitaly", source="virlo",
+                query_sig="corpus:abc", endpoint="virlo-corpus", path=artifact_path,
+            )
+            report = store.run_expiry_job()
+            assert report.raw_payloads_deleted == 0
+            assert artifact_path.exists()
+        finally:
+            store.close()
+
+    def test_does_not_write_a_second_copy_of_the_file(self, tmp_path):
+        """Unlike ``record_request``, this never writes bytes itself — the
+        caller already has the file on disk."""
+        store = _store(tmp_path)
+        try:
+            artifact_path = tmp_path / "logs" / "runs" / "r1" / "virlo_corpus.yaml"
+            artifact_path.parent.mkdir(parents=True)
+            artifact_path.write_text("monitor_id: abc\n", encoding="utf-8")
+
+            entry = store.register_raw_artifact(
+                run_id="r1", run_date="2026-08-01", theme="hypedigitaly", source="virlo",
+                query_sig="corpus:abc", endpoint="virlo-corpus", path=artifact_path,
+            )
+            assert entry.raw_payload_path == str(artifact_path)
+        finally:
+            store.close()
+
+
+class TestHandleHashKeyConfigDirResolution:
+    """W8-9 Phase 1: ``HANDLE_HASH_KEY`` resolves from the environment/.env
+    before the legacy ``secrets/handle_hash.key`` file, when ``config_dir``
+    is given; ``config_dir=None`` reproduces the exact old behavior."""
+
+    def test_config_dir_none_reproduces_old_behavior(self, tmp_path):
+        key1 = load_or_create_handle_hash_key(tmp_path / "secrets")
+        key2 = load_or_create_handle_hash_key(tmp_path / "secrets", config_dir=None)
+        assert key1 == key2
+
+    def test_dotenv_value_used_when_config_dir_given(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HANDLE_HASH_KEY", raising=False)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        hex_key = "11" * 32
+        (tmp_path / ".env").write_text(f"HANDLE_HASH_KEY={hex_key}\n", encoding="utf-8")
+
+        key = load_or_create_handle_hash_key(tmp_path / "secrets", config_dir=config_dir)
+        assert key == bytes.fromhex(hex_key)
+
+    def test_malformed_dotenv_value_falls_back_to_legacy_or_generated(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HANDLE_HASH_KEY", raising=False)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (tmp_path / ".env").write_text("HANDLE_HASH_KEY=not_valid_hex!!\n", encoding="utf-8")
+
+        # Never raises -- degrades to generating (or reading) the legacy file.
+        key = load_or_create_handle_hash_key(tmp_path / "secrets", config_dir=config_dir)
+        assert isinstance(key, bytes) and len(key) == 32

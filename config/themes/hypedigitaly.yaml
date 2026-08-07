@@ -98,18 +98,39 @@ research:
       family: launch_registries
       circuit_breaker_threshold: 3
 
-    # M3 (GOAL_ROADMAP.md): Virlo short-form social intelligence — two GET
-    # reads (trends digest + a read of the existing recurring "AI Trends
-    # Tracker" monitor), never a POST/create call. key_path is relative to
-    # the repo root; fail-closed to "source degraded, run continues" if the
-    # key file is missing (never a hard run failure).
+    # M3 (GOAL_ROADMAP.md), upgraded W8-9 Phase 2: Virlo short-form social
+    # intelligence, GET-only, never a POST/create call, never a poll loop
+    # (at most one pass over any paginated endpoint per run). key_path is
+    # the legacy fallback (relative to the repo root) — VIRLO_API_KEY
+    # resolves first from the real environment, then repo-root `.env`
+    # (W8-9 Phase 1); fail-closed to "source degraded, run continues" if
+    # nothing resolves anywhere (never a hard run failure).
     virlo:
       enabled: true
       family: short_form_trends
       key_path: "secrets/virlo.key"
-      monitor_id: "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"  # "AI Trends Tracker", cycles Sundays
-      budget_max_calls: 4
+      monitor_id: "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"  # legacy single-id fallback (unused when monitor_ids is set)
+      # Ordered monitor fallback list (W8-9 Phase 2): the new intelligence-
+      # enabled v2 monitor first — read each at most once per run, falling
+      # through to the next only when the current one has no finalized run
+      # yet. The selected (first finalized) monitor is used for BOTH theme
+      # extraction and the /videos, /slideshows sub-paths below.
+      monitor_ids:
+        - "623203a9-c09c-4763-85e0-1c177b5af760"  # "AI Trends Tracker v2 (intelligence)"
+        - "9c96fddf-dc35-4be0-bbd9-12f4d22aea12"   # "AI Trends Tracker" (original, cycles Sundays)
+      # Raised from 4 (W8-9 Phase 2): 1-2 monitor reads + up to
+      # subpath_page_cap pages each for /videos and /slideshows.
+      budget_max_calls: 20
       circuit_breaker_threshold: 3
+      # The $0.25 trends digest becomes opt-in, off by default — the
+      # monitor + sub-path surfaces are free and materially more on-topic.
+      trends_digest_enabled: false
+      # Hard page cap per sub-path (/videos, /slideshows) — one pass only.
+      subpath_page_cap: 6
+      # Top-K images (thumbnails + carousel panels) downloaded for the
+      # upcoming vision-LLM analysis stage; analysis input only, never
+      # re-published, never copied into a pack.
+      media_download_cap: 24
 
 ranking:
   ranking_config_version: 1

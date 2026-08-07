@@ -1,0 +1,12 @@
+{
+  "data": {
+    "id": "623203a9-c09c-4763-85e0-1c177b5af760",
+    "name": "AI Trends Tracker v2 (intelligence)",
+    "is_recurring": true,
+    "active": true,
+    "finalized": false,
+    "data_intelligence_enabled": true,
+    "analysis_data": null,
+    "latest_run": {"status": "processing"}
+  }
+}

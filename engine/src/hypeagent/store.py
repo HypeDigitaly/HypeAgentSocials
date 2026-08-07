@@ -205,7 +205,7 @@ def sha256_hex(data: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 
-def load_or_create_handle_hash_key(secrets_dir: Path) -> bytes:
+def load_or_create_handle_hash_key(secrets_dir: Path, *, config_dir: Path | None = None) -> bytes:
     """Load the HMAC key for handle hashing, generating it on first run.
 
     Deliberately deterministic across runs (same key -> same hash for the
@@ -213,6 +213,15 @@ def load_or_create_handle_hash_key(secrets_dir: Path) -> bytes:
     re-hashing it and deleting the matches (§2.6). The key lives at
     ``secrets/handle_hash.key`` — outside source control by way of
     ``secrets/.gitignore`` (``*``), created alongside it.
+
+    W8-9 Phase 1: when ``config_dir`` is given, ``HANDLE_HASH_KEY`` is
+    resolved first via :func:`hypeagent.config_load.resolve_secret`
+    (real environment variable > repo-root ``.env`` > this legacy key file,
+    in that order) — stored the same way the file always has, as a hex
+    string. A malformed (non-hex) resolved value degrades silently back to
+    the legacy-file-or-generate path below, never raises: this function has
+    never been allowed to fail a run. ``config_dir=None`` (every call site
+    that predates W8-9) reproduces the exact old behavior.
     """
     secrets_dir = Path(secrets_dir)
     secrets_dir.mkdir(parents=True, exist_ok=True)
@@ -220,6 +229,17 @@ def load_or_create_handle_hash_key(secrets_dir: Path) -> bytes:
     if not gitignore_path.exists():
         gitignore_path.write_text("*\n", encoding="utf-8")
     key_path = secrets_dir / "handle_hash.key"
+
+    if config_dir is not None:
+        from hypeagent.config_load import resolve_secret
+
+        value, _source = resolve_secret("HANDLE_HASH_KEY", config_dir=config_dir, legacy_path=key_path)
+        if value:
+            try:
+                return bytes.fromhex(value)
+            except ValueError:
+                pass  # malformed .env/environment value -> fall through below
+
     if key_path.exists():
         return bytes.fromhex(key_path.read_text(encoding="utf-8").strip())
     key = secrets.token_bytes(32)
@@ -440,10 +460,10 @@ class Store:
             self._conn.execute("ALTER TABLE media_intents ADD COLUMN prompt_full TEXT")
 
     @classmethod
-    def open(cls, logs_dir: Path, secrets_dir: Path) -> "Store":
+    def open(cls, logs_dir: Path, secrets_dir: Path, *, config_dir: Path | None = None) -> "Store":
         db_path = Path(logs_dir) / "state" / "engine.db"
         artifacts_dir = Path(logs_dir) / "artifacts" / "raw"
-        key = load_or_create_handle_hash_key(Path(secrets_dir))
+        key = load_or_create_handle_hash_key(Path(secrets_dir), config_dir=config_dir)
         return cls(db_path=db_path, artifacts_dir=artifacts_dir, handle_hash_key=key)
 
     def close(self) -> None:
@@ -548,6 +568,68 @@ class Store:
                 _now_iso(moment + timedelta(days=RAW_PAYLOAD_RETENTION_DAYS))
                 if payload is not None
                 else _now_iso(expires_at),
+            ),
+        )
+        self._conn.commit()
+        row = self._conn.execute("SELECT * FROM request_log WHERE id=?", (cur.lastrowid,)).fetchone()
+        return _row_to_request_log_entry(row)
+
+    # -- W8-9 Phase 2: derived raw artifacts (not an HTTP payload body) --
+
+    def register_raw_artifact(
+        self,
+        *,
+        run_id: str,
+        run_date: str,
+        theme: str,
+        source: str,
+        query_sig: str,
+        endpoint: str,
+        path: Path,
+        now: datetime | None = None,
+    ) -> RequestLogEntry:
+        """Register an already-written file under the SAME 30-day raw-payload
+        retention job that covers every HTTP payload body (§2.6, §8.6):
+        ``run_expiry_job`` deletes the file at ``expires_at`` and nulls this
+        row's ``raw_payload_path`` exactly as it already does for
+        ``record_request``'s own payloads — no second expiry mechanism to
+        maintain.
+
+        Unlike ``record_request``, this never writes the file itself (the
+        caller already has, e.g. ``virlo_corpus.yaml`` under
+        ``logs/runs/<run_id>/`` or one downloaded media file under
+        ``logs/artifacts/raw/<run_id>/virlo_media/``); it only inserts the
+        metadata + expiry row that makes the file findable and, later,
+        deletable on schedule regardless of which directory it physically
+        lives under.
+        """
+        moment = now if now is not None else datetime.now().astimezone()
+        path = Path(path)
+        data = path.read_bytes()
+        payload_sha256 = sha256_hex(data)
+        expires_at = moment + timedelta(days=RAW_PAYLOAD_RETENTION_DAYS)
+        cur = self._conn.execute(
+            "INSERT INTO request_log (run_id, run_date, theme, source, query_sig, endpoint, method, "
+            "ts, status, rung, etag, last_modified, payload_sha256, payload_bytes, raw_payload_path, "
+            "quota_spent, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                run_id,
+                run_date,
+                theme,
+                source,
+                query_sig,
+                endpoint,
+                "GET",
+                _now_iso(moment),
+                "ok",
+                "artifact",
+                None,
+                None,
+                payload_sha256,
+                len(data),
+                str(path),
+                None,
+                _now_iso(expires_at),
             ),
         )
         self._conn.commit()

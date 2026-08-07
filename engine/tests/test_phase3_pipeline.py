@@ -199,6 +199,73 @@ class TestGatedPassGeneratesRealImage:
         ctx.store.close()
 
 
+class TestKieKeyResolutionPrecedence:
+    """W8-9 Phase 1: the media stage resolves ``KIE_API_KEY`` via real
+    environment variable > repo-root ``.env`` > the legacy key file --
+    exercised through the real ``stage_media`` code path (not a unit test
+    of ``resolve_secret`` in isolation)."""
+
+    def test_dotenv_value_is_used_with_no_legacy_key_file_present(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KIE_API_KEY", raising=False)
+        _write_config(tmp_path)
+        fetcher = _merged_fetcher({})
+        run_id = "2026-08-10_m4kie1"
+        ctx, run_dir, trace_path, exit_class_value = _run_once_with_ctx(tmp_path, fetcher, run_id)
+
+        statuses = ctx.extra.get("copy_asset_statuses", [])
+        held = next(s for s in statuses if s.status == "held — awaiting operator copy")
+        resp_dir = run_dir / "copy_responses"
+        resp_dir.mkdir(parents=True, exist_ok=True)
+        (resp_dir / f"{held.asset_id}.yaml").write_text(
+            yaml.safe_dump({
+                "headline": "AI agents are changing outbound sales",
+                "caption": "See how small businesses use AI chatbots. Learn more at example.com. [AI-generated content]",
+                "image_brief": "A calm, people-free office scene, no product depiction.",
+            }),
+            encoding="utf-8",
+        )
+        second_trace = TraceWriter(tmp_path / "logs" / "second_trace.jsonl", run_id)
+        try:
+            stages.stage_copy(ctx, second_trace)
+        finally:
+            second_trace.close()
+
+        # No legacy secrets/kie.key file anywhere -- the ONLY source of the
+        # key is the repo-root .env this test writes next to config_dir.
+        (tmp_path / ".env").write_text("KIE_API_KEY=kie_dotenv_secret_value\n", encoding="utf-8")
+
+        from hypeagent.store import Store
+
+        ctx.store = Store.open(ctx.logs_dir, tmp_path / "secrets", config_dir=ctx.config_dir)
+        gated = next(s for s in ctx.extra["copy_asset_statuses"] if s.status == "gated-pass")
+        kie_fetcher = _merged_fetcher(
+            {
+                "createTask": [_create_task_ok("task_dotenv_1")],
+                "recordInfo": [_record_info_success("task_dotenv_1")],
+                "chat/credit": [_credit_balance(100.0), _credit_balance(96.0)],
+                RESULT_IMAGE_URL: [_image_response()],
+            }
+        )
+        ctx.fetcher_factory = lambda: kie_fetcher
+
+        media_trace_path = tmp_path / "logs" / "media_trace_dotenv.jsonl"
+        media_trace = TraceWriter(media_trace_path, run_id)
+        try:
+            media_result = stages.stage_media(ctx, media_trace)
+        finally:
+            media_trace.close()
+
+        assert media_result.outcome == "ok"
+        generated = next(s for s in ctx.extra["media_asset_statuses"] if s.asset_id == gated.asset_id)
+        assert generated.status == "generated"
+
+        # The .env-sourced key never reaches the trace.
+        media_trace_text = media_trace_path.read_text(encoding="utf-8")
+        assert "kie_dotenv_secret_value" not in media_trace_text
+
+        ctx.store.close()
+
+
 class TestExitClassMapping:
     def test_media_budget_capped_mid_pack_maps_to_its_own_exit_class(self, tmp_path, monkeypatch):
         def fake_media(ctx, trace):

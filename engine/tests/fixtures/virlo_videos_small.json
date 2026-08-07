@@ -1,0 +1,57 @@
+{
+  "data": {
+    "agent_id": "623203a9-c09c-4763-85e0-1c177b5af760",
+    "agent_name": "AI Trends Tracker v2 (intelligence)",
+    "total": 2,
+    "limit": 100,
+    "offset": 0,
+    "videos": [
+      {
+        "id": "fake-video-id-1",
+        "url": "https://tiktok.example.com/@fakecreatorone/video/1111111111",
+        "description": "Fake caption: this AI agent qualifies leads for you while you sleep #aiagents #automation",
+        "platform": "tiktok",
+        "views": 4489565,
+        "likes": 350000,
+        "shares": 12000,
+        "comments": 4300,
+        "bookmarks": 9800,
+        "publish_date": "2026-07-20T10:00:00Z",
+        "author": {"username": "fakecreatorone", "verified": true, "followers": 120000, "avatar_url": "https://cdn.example.com/avatars/fakecreatorone.webp"},
+        "hashtags": ["aiagents", "automation", "outbound"],
+        "thumbnail_url": "https://cdn.example.com/thumbs/fake-video-id-1.jpg",
+        "keyword_found_by": "AI agents",
+        "intent_match": true,
+        "sound": {"id": "sound-1", "title": "Fake Sound Title"},
+        "intelligence_status": "ready",
+        "intelligence": {
+          "hook_text": "This AI agent replaced my entire sales team",
+          "text_overlay_content": "AI AGENT CLOSES DEALS 24/7",
+          "summary": "Creator demonstrates an AI agent automatically qualifying and following up with inbound leads.",
+          "content_format": "talking_head_with_screen_recording",
+          "cta_usages": ["comment keyword to get the workflow"]
+        }
+      },
+      {
+        "id": "fake-video-id-2",
+        "url": "https://tiktok.example.com/@fakecreatortwo/video/2222222222",
+        "description": "Fake caption: outbound automation hack nobody talks about",
+        "platform": "tiktok",
+        "views": 1250000,
+        "likes": 90000,
+        "shares": 3000,
+        "comments": 900,
+        "bookmarks": 2100,
+        "publish_date": "2026-07-18T08:00:00Z",
+        "author": {"username": "fakecreatortwo", "verified": false, "followers": 45000, "avatar_url": "https://cdn.example.com/avatars/fakecreatortwo.webp"},
+        "hashtags": ["outbound", "sales"],
+        "thumbnail_url": "https://cdn.example.com/thumbs/fake-video-id-2.jpg",
+        "keyword_found_by": "outbound automation",
+        "intent_match": true,
+        "sound": {"id": "sound-2", "title": "Another Fake Sound"},
+        "intelligence_status": "disabled",
+        "intelligence": null
+      }
+    ]
+  }
+}
