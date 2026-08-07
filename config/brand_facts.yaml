@@ -52,7 +52,7 @@ capabilities:
       source: "hd.corpus.web Služby, 2026-08-05"
   negative:  # things we must never imply we do/are
     - "No medical, legal, or financial-advice products — never imply regulated-outcome expertise"
-    - "No product imagery exists or may be generated (Policy A permanent, W8-1a) — brand visuals are logos + existing published assets only"
+    - "No AI-generated depictions of OUR OWN product UI/dashboards (Policy A for catalogued sellable items, W8-1a scope narrowed by W8-9) — our products appear only as real published assets; third-party tool logos, software screenshots, and people in visuals are ALLOWED per W8-9"
     - "We are a software/services company — no physical products"
     - "Do not present RAGus as current — legacy only"
     - "No client names in generated content (Projects DB is internal; 'Nuvaro' etc. confidential)"

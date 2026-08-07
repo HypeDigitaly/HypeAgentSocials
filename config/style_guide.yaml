@@ -1,0 +1,160 @@
+# Style guide — distilled from docs/marketing/Inspiration (W8-9, authored 2026-08-07).
+# Consumed by the LLM nodes (trend analyst, copywriter, image-prompt crafter, vision QA).
+# Evidence base: 8 LinkedIn viral posts (+16-post competitor swipe file), GojiBerry GTM
+# playbooks, the bilingual HypeLead GTM playbook (GTM/00-GTM-Playbook.html §1.5), and
+# 22 TikTok/IG visuals. This file states the DESIRED style; brand truth and the claim
+# gate still govern what may be said (config/brand_facts.yaml + claim snapshot).
+
+version: 1
+source_corpus: docs/marketing/Inspiration
+locales:
+  active: [en]
+  notes:
+    cs: >
+      Czech register must be SOFTER than the EN/FR corpus: relationship-led, polite
+      (vykani), no "R.I.P cold email" shock hooks. Per GTM playbook localization rule.
+
+# ---------------------------------------------------------------- hooks (ranked) ----
+hooks:
+  - key: old-way-died
+    rank: 1
+    pattern: "The old way just died (+ 'and I'm never going back')"
+    example: "X just killed manual prospecting. And I'm never going back."
+  - key: speed-curiosity
+    rank: 2
+    pattern: "Speed or curiosity gap in line 1"
+    example: "Connect Claude to LinkedIn in 30 seconds?"
+  - key: shock-stat
+    rank: 3
+    pattern: "Shock stat about the old way"
+    example: "LinkedIn prospecting is still 90% guesswork."
+  - key: one-percent
+    rank: 4
+    pattern: "You use it for 1% of what it can do"
+    example: "Most people use Claude to write their posts. That's 1% of what it can do."
+  - key: doubter-converted
+    rank: 5
+    pattern: "I didn't believe it either — then I understood"
+  - key: result-plus-giveaway
+    rank: 6
+    pattern: "Big concrete result + free giveaway"
+    example: "I built 3 sales AI agents. (and I'm giving all 3 away for free)"
+
+# ------------------------------------------------------------------- platforms ------
+platforms:
+  linkedin:
+    copy:
+      form: long_post
+      word_count: [150, 330]
+      skeleton:  # the 7-beat shape; every corpus post follows it
+        - hook (1-2 lines, from hooks list)
+        - old way as an X-mark list (3-4 lines, glyph "❌")
+        - the new way — NAME the real tool(s)
+        - capability bullets with "→" glyph (min 5, max 9 — never outside this band)
+        - one concrete result number (exactly one headline number)
+        - the free giveaway / lead magnet (playbook, guide, prompt set)
+        - CTA stack
+      formatting:
+        one_sentence_per_line: true
+        blank_line_between_lines: true
+        glyphs: {capabilities: "→", old_way: "❌", product_list: "➤", results: "-->"}
+        unicode_bold_subheaders: allowed
+        emoji_budget: [2, 5]
+      cta_stack:  # up to all four, in this order
+        - comment_keyword_gate   # "Comment 'WORD' and I'll send it" — single caps word
+        - connection_requirement # "(We need to be connected so I can reply)"
+        - repost_ask             # "♻️ Repost to help ..."
+        - ps_mindset_line        # optional P.S. with a mindset shift
+      numbers_rule: >
+        Every post carries 1-6 hard numbers (time saved, leads, reply rates, revenue) —
+        but ONLY numbers that pass the claim gate: trend-corpus numbers must be
+        attributed to the trend ("creators are reporting..."), never claimed as ours.
+    visual:
+      default_archetypes: [statement-card, dense-spec-card, screenshot-as-proof]
+      aspect_ratio: "1.91:1 or 1:1"
+      one_image_per_post: true
+  instagram_feed:
+    copy:
+      form: short_caption_plus_carousel
+      caption_word_count: [30, 120]
+      caption_style: "punchy, 1-3 short lines + hashtag-free CTA to save/share/follow"
+      carousel:
+        slides: [6, 10]
+        cover: "big italic-serif or bold-sans headline, 3D brand icon, minimal words"
+        body_slide_template: >
+          eyebrow ("Step N" / "0N") + 2-line headline + 2-3 sentence body +
+          checklist rows or a quoted prompt box; 60-90 words per slide
+        end_card: "follow/save CTA card"
+    visual:
+      default_archetypes: [editorial-carousel, numbered-infographic, tool-showcase]
+      aspect_ratio: "4:5"
+  tiktok:
+    copy:
+      form: short_caption
+      caption_word_count: [15, 60]
+      caption_style: "native, lowercase-friendly, one hook line + comment-bait question"
+    visual:
+      default_archetypes: [dark-hype-poster, ugc-photo-caption, editorial-carousel]
+      aspect_ratio: "9:16"
+
+# ------------------------------------------------------------- visual archetypes ----
+visual_archetypes:
+  - key: screenshot-as-proof
+    desc: "Unretouched software screenshot as proof (calendar full of booked calls, inbox of leads). Zero design applied."
+  - key: screenshot-annotated
+    desc: "Screenshot + highlight/annotation layer drawing the eye to the proof."
+  - key: statement-card
+    desc: "Big-type statement or logo-equation card (Tool + Platform = result number) on flat ground, 1-3 real logos."
+  - key: dense-spec-card
+    desc: "Dark branded card restating the post's bullets as designed columns/panels with numbers and arrows."
+  - key: editorial-carousel
+    desc: "Cream/bone paper texture, italic Didone serif headlines, teal accent checkboxes, quoted prompt boxes. 100% of value is legible baked-in text."
+  - key: dark-hype-poster
+    desc: "Black ground, condensed bold caps, YELLOW keyword highlighting, 3D robot/mascot, LINK IN BIO block."
+  - key: numbered-infographic
+    desc: "Numbered strip (01-07) rows: title + 3-line description + supporting UI panel per row. Very high density."
+  - key: tool-showcase
+    desc: "Laptop/phone mockup containing a real product screenshot + big wordmark on dark ground with neon decor."
+  - key: ugc-photo-caption
+    desc: "Real-looking lifestyle photo (desk, office, kitchen) with a plain native text-overlay caption."
+  - key: person-plus-stickers
+    desc: "Photo of a person + oversized 3D app-icon stickers (Claude, LinkedIn) composited in."
+  - key: editorial-fashion
+    desc: "High-fashion photo composite with giant type overlapping subject + brand logo prop."
+  - key: end-card
+    desc: "Follow/save CTA card closing a carousel, platform glyphs outlined."
+
+visual_registers:
+  editorial:
+    ground: "bone/cream paper texture (#f2f0ec family) or warm off-white"
+    type: "italic Didone-style serif display + roman serif body"
+    accent: "single mint/teal accent (checkboxes, pill labels)"
+    mood: "premium, calm, high-trust"
+  hype:
+    ground: "near-black"
+    type: "condensed bold all-caps sans"
+    accent: "yellow keyword highlight blocks; white primary text"
+    mood: "urgent, direct-response"
+
+# ------------------------------------------------------------------ brand layer -----
+brand:
+  palette_primary_gradient: ["#302B87", "#00A39A"]   # HD indigo -> teal
+  typeface: "Montserrat (SemiBold headings, Regular body)"
+  logo_assets_dir: assets/brand   # populated from Notion HypeLead v2 pack (Phase 5)
+  handle: "@hypedigitaly"
+  disclosure_line: "[AI-generated content]"   # mandatory in every caption (claim gate enforces)
+  third_party_marks: >
+    Real third-party tool logos/screenshots allowed per W8-9 (Claude, LinkedIn, named AI
+    tools) when the post is ABOUT those tools. Depict accurately; never imply
+    partnership or endorsement.
+
+# -------------------------------------------------------------------- reject list ---
+reject:
+  - "ban-evasion tactics (new browsers/accounts to dodge platform limits)"
+  - "bought pre-warmed inboxes / 6000-emails-a-day volume plays"
+  - "fabricated social proof (fake 'EDIT: after so many requests' lines, invented DMs or results)"
+  - "claiming trend-corpus numbers as HypeDigitaly's own results"
+  - "prices or price-shaped claims (F-F: prices never stated)"
+  - "regulated-outcome or therapeutic promises (claim gate class)"
+  - "client names (Nuvaro etc.) or presenting RAGus as current"
+  - "identifiable real individuals / celebrity likeness in generated imagery"
