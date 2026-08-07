@@ -404,6 +404,59 @@ class OpenAICompatibleConfig:
 
 
 @dataclass(frozen=True)
+class LlmNodeOverride:
+    """Optional per-node override of model/temperature/max_tokens (W8-9
+    Q2) — e.g. a cheaper/faster model for the prompt crafter than the
+    copywriter. Any field left ``None`` falls back to :class:`LlmConfig`'s
+    own default for that field."""
+
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class LlmConfig:
+    """The OpenRouter-backed LLM client config surface (W8-9 Q2), shared by
+    every LLM node (N-A analyst, N-C copywriter, N-D prompt crafter).
+    Disabled by default — a theme predating this block gets the
+    interactive-file copy provider and no analysis-stage LLM call, exactly
+    like :class:`OpenAICompatibleConfig` before it (the same
+    safe-default-for-a-predating-theme philosophy :class:`GenerationConfig`
+    already documents).
+
+    Pricing (``usd_per_1m_*_tokens``) is an ESTIMATE for the spend ledger,
+    used only when the OpenRouter response itself does not carry a
+    ``usage.cost`` field. Live-verified 2026-08-07 against OpenRouter's own
+    ``GET /api/v1/models`` listing for ``anthropic/claude-sonnet-5``
+    (``pricing.prompt = 0.000002``, ``pricing.completion = 0.00001`` i.e.
+    $2 / $10 per 1M tokens) — OpenRouter and/or Anthropic may reprice this
+    model at any time, so these two numbers are a fallback estimate, not a
+    source of truth; ``hypeagent.llm.LlmClient`` prefers the response's own
+    reported ``usage.cost`` whenever OpenRouter provides it (which it did on
+    every one of this milestone's live verification calls).
+    """
+
+    enabled: bool = False
+    provider: str = "openrouter"
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = "anthropic/claude-sonnet-5"
+    key_env: str = "OPENROUTER_API_KEY"
+    legacy_key_path: str = "secrets/openrouter.key"
+    default_temperature: float = 0.4
+    default_max_tokens: int = 1500
+    usd_per_1m_input_tokens: float = 2.0
+    usd_per_1m_output_tokens: float = 10.0
+    per_run_usd_cap: float = 1.00
+    per_run_call_cap: int = 20
+    analyst_max_images: int = 12
+    node_overrides: dict[str, LlmNodeOverride] = field(default_factory=dict)
+
+    def override_for(self, node_name: str) -> LlmNodeOverride:
+        return self.node_overrides.get(node_name, LlmNodeOverride())
+
+
+@dataclass(frozen=True)
 class MediaConfig:
     """The M4 media-generation knob surface for one theme (§5.2, §8.11).
 
@@ -438,6 +491,7 @@ class GenerationConfig:
     exemplar_pool: list[str]
     openai_compatible: OpenAICompatibleConfig
     media: MediaConfig
+    llm: LlmConfig
 
 
 def load_theme_generation_config(config_dir: Path, theme_name: str) -> GenerationConfig:
@@ -480,6 +534,34 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         key_path=str(media_block.get("key_path", "")),
         unexplained_spend_threshold=float(media_block.get("unexplained_spend_threshold", 0.20)),
     )
+
+    llm_block = block.get("llm") or {}
+    node_overrides_raw = llm_block.get("node_overrides") or {}
+    node_overrides = {
+        str(name): LlmNodeOverride(
+            model=cfg.get("model") if cfg else None,
+            temperature=float(cfg["temperature"]) if cfg and cfg.get("temperature") is not None else None,
+            max_tokens=int(cfg["max_tokens"]) if cfg and cfg.get("max_tokens") is not None else None,
+        )
+        for name, cfg in node_overrides_raw.items()
+    }
+    llm = LlmConfig(
+        enabled=bool(llm_block.get("enabled", False)),
+        provider=str(llm_block.get("provider", "openrouter")),
+        base_url=str(llm_block.get("base_url", "https://openrouter.ai/api/v1")),
+        model=str(llm_block.get("model", "anthropic/claude-sonnet-5")),
+        key_env=str(llm_block.get("key_env", "OPENROUTER_API_KEY")),
+        legacy_key_path=str(llm_block.get("legacy_key_path", "secrets/openrouter.key")),
+        default_temperature=float(llm_block.get("default_temperature", 0.4)),
+        default_max_tokens=int(llm_block.get("default_max_tokens", 1500)),
+        usd_per_1m_input_tokens=float(llm_block.get("usd_per_1m_input_tokens", 2.0)),
+        usd_per_1m_output_tokens=float(llm_block.get("usd_per_1m_output_tokens", 10.0)),
+        per_run_usd_cap=float(llm_block.get("per_run_usd_cap", 1.00)),
+        per_run_call_cap=int(llm_block.get("per_run_call_cap", 20)),
+        analyst_max_images=int(llm_block.get("analyst_max_images", 12)),
+        node_overrides=node_overrides,
+    )
+
     return GenerationConfig(
         destinations=list(block.get("destinations") or ["linkedin", "instagram_feed"]),
         copy_provider=str(block.get("copy_provider", "interactive-file")),
@@ -488,4 +570,25 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         exemplar_pool=list(block.get("exemplar_pool") or []),
         openai_compatible=openai_compatible,
         media=media,
+        llm=llm,
     )
+
+
+# ---------------------------------------------------------------------------
+# config/style_guide.yaml (W8-9 Q3) — platform skeletons, visual archetypes/
+# registers, brand layer, reject list. Read by every LLM prompt-building
+# function (N-A analyst, N-C copywriter, N-D prompt crafter). A separate,
+# tiny loader (not folded into ``load_theme_generation_config``) because it
+# is cross-theme, not per-theme, config.
+# ---------------------------------------------------------------------------
+
+
+def load_style_guide(config_dir: Path) -> dict[str, Any]:
+    """Load ``config/style_guide.yaml``, fail-closed like every other config
+    file in this engine. Callers that only need it on the LLM-enabled path
+    catch :class:`ConfigError` at the stage boundary and degrade to the
+    pre-existing non-LLM path (interactive-file copy, ``compose_prompt``
+    image briefs) rather than letting a missing style guide fail the whole
+    run — the same "a debugging/quality aid must never become a new failure
+    surface" posture the rest of this engine already holds itself to."""
+    return load_yaml_config(Path(config_dir) / "style_guide.yaml", name="style_guide.yaml")

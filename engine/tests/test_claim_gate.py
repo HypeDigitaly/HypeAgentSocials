@@ -165,3 +165,48 @@ class TestCleanCopyPasses:
         )
         assert verdict.verdict == "pass"
         assert verdict.failing_spans == []
+
+
+class TestSlidesGatedSurface:
+    """W8-9 Q3b: carousel per-slide title/body text is checked exactly like
+    headline/caption/image_brief."""
+
+    def test_clean_slides_pass(self):
+        snapshot = _snapshot([])
+        verdict = run_claim_gate(
+            headline="AI agents explained",
+            caption=f"A quick carousel on AI agents. {DISCLOSURE}",
+            image_brief="",
+            snapshot=snapshot,
+            slides=[
+                {"role": "cover", "title": "AI Agents Explained", "body": ""},
+                {"role": "body", "title": "Step 1", "body": "Connect your data sources."},
+                {"role": "end_card", "title": "Follow for more", "body": ""},
+            ],
+        )
+        assert verdict.verdict == "pass"
+
+    def test_superlative_in_a_slide_body_blocks_and_names_the_slide(self):
+        snapshot = _snapshot([])
+        verdict = run_claim_gate(
+            headline="AI agents 101",
+            caption=f"A quick carousel. {DISCLOSURE}",
+            image_brief="",
+            snapshot=snapshot,
+            slides=[
+                {"role": "cover", "title": "AI Agents 101", "body": ""},
+                {"role": "body", "title": "Step 1", "body": "This is the best AI agent ever built."},
+            ],
+        )
+        assert verdict.verdict == "blocked"
+        matching = [s for s in verdict.failing_spans if s.kind == "superlative"]
+        assert matching
+        assert matching[0].field_name == "slide_2_body"
+
+    def test_no_slides_does_not_change_existing_behaviour(self):
+        snapshot = _snapshot([])
+        verdict = run_claim_gate(
+            headline="Clean copy", caption=f"Fine copy. {DISCLOSURE}", image_brief="", snapshot=snapshot,
+            slides=None,
+        )
+        assert verdict.verdict == "pass"

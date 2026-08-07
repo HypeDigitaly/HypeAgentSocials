@@ -60,7 +60,17 @@ from hypeagent.config_load import ConfigError, MediaConfig, load_yaml_config
 from hypeagent.store import MediaIntentAlreadyExists, MediaIntentRow, Store
 from hypeagent.trace import TraceWriter
 
-PROMPT_PATTERN_VERSION = 1
+# W8-9 Q3c: bumped 1 -> 2. The hero-image path now prefers an N-D-crafted
+# prompt (``promptcraft.craft_prompts``) over ``compose_prompt`` below when
+# one is available -- a qualitatively different prompt-construction scheme
+# (the old ``_NEGATIVE_CONSTRAINTS`` no-text/no-logo/no-people list is DEAD
+# for the crafted path; the crafted prompt embeds gate-passed text to render
+# VERBATIM, which the old scheme explicitly forbade). ``prompt_pattern_version``
+# is part of a media intent's write-ahead identity tuple (``MediaGenerator.
+# process``'s ``identity_kwargs``), so bumping it here means a resumed run
+# reproducibly reuses the SAME scheme it started with rather than an
+# in-place identity silently spanning two incompatible prompt styles.
+PROMPT_PATTERN_VERSION = 2
 ATTEMPT_MAX = 2
 
 CREATE_TASK_ALLOWED_KEYS = {"model", "input_keys", "prompt_sha256", "prompt_len", "output_format", "aspect_ratio"}
@@ -543,15 +553,29 @@ class MediaAssetPlan:
     language: str
     copy_status: str
     image_brief: str | None
+    # W8-9 Q3c: an N-D-crafted, gate-checked hero prompt, when one is
+    # available and usable -- ``None`` falls back to
+    # ``compose_prompt(image_brief, registry)`` exactly as before this
+    # milestone (degrade path: crafter unavailable/gate-blocked/disabled).
+    crafted_hero_prompt: str | None = None
 
 
-def plan_media_assets(copy_asset_statuses: list[Any], *, language: str = "en") -> list[MediaAssetPlan]:
+def plan_media_assets(
+    copy_asset_statuses: list[Any], *, language: str = "en", crafted_prompts: dict[str, Any] | None = None
+) -> list[MediaAssetPlan]:
     """Build one media plan entry per copy asset (§4.6: "plan-only is
     always produced"). ``copy_asset_statuses`` is a list of
     ``copy_gen.AssetCopyStatus`` -- typed as ``Any`` here to avoid a
-    circular import; only the four attributes below are read."""
+    circular import; only the attributes read below are used.
+
+    ``crafted_prompts`` (W8-9 Q3c) maps ``asset_id`` -> a
+    ``promptcraft.CraftedPromptSet`` -- typed ``Any`` for the same
+    circular-import reason; only ``.hero_prompt()`` is called."""
+    crafted_prompts = crafted_prompts or {}
     plans: list[MediaAssetPlan] = []
     for status in copy_asset_statuses:
+        crafted = crafted_prompts.get(status.asset_id)
+        hero_prompt = crafted.hero_prompt() if crafted is not None else None
         plans.append(
             MediaAssetPlan(
                 asset_id=status.asset_id,
@@ -560,6 +584,7 @@ def plan_media_assets(copy_asset_statuses: list[Any], *, language: str = "en") -
                 language=language,
                 copy_status=status.status,
                 image_brief=status.image_brief if status.status == "gated-pass" else None,
+                crafted_hero_prompt=hero_prompt if status.status == "gated-pass" else None,
             )
         )
     return plans
@@ -834,7 +859,10 @@ class MediaGenerator:
         :class:`MediaIntentAlreadyExists` is still handled defensively below
         in case of a race between the existence check and this insert."""
         assert plan.image_brief is not None
-        prompt = compose_prompt(plan.image_brief, self.registry)
+        # W8-9 Q3c: prefer the N-D-crafted, gate-checked hero prompt when
+        # one is available; degrade to the pre-existing deterministic
+        # template otherwise (crafter disabled/unavailable/gate-blocked).
+        prompt = plan.crafted_hero_prompt or compose_prompt(plan.image_brief, self.registry)
         try:
             row = self.store.insert_media_intent(
                 run_id=self.run_id, route_id=route.route_id, model_string=route.model_string,

@@ -18,16 +18,18 @@ from urllib.parse import urlparse
 
 import yaml
 
-from hypeagent import brand_truth, config_load, copy_gen, media_gen, packaging, process_summary, resume_state as resume_state_module, spin as spin_module
+from hypeagent import analysis, brand_truth, config_load, copy_gen, llm as llm_module, media_gen, packaging, process_summary, promptcraft, resume_state as resume_state_module, spin as spin_module
 from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
+    ConfigError,
     GenerationConfig,
     ThemeConfig,
     ThemeResearchConfig,
     load_theme_config,
     load_theme_generation_config,
     load_theme_research_config,
+    load_style_guide,
 )
 from hypeagent.exit_codes import ExitClass
 from hypeagent.ranking import (
@@ -51,6 +53,7 @@ from hypeagent.trace import TraceWriter
 CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "theme_load",
     "collection",
+    "analysis",
     "ranking",
     "brand_truth",
     "spin",
@@ -292,6 +295,112 @@ def stage_collection(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def _resolve_llm_api_key(ctx: RunContext) -> str | None:
+    assert ctx.generation is not None
+    llm_cfg = ctx.generation.llm
+    legacy_path = (ctx.config_dir.parent / llm_cfg.legacy_key_path) if llm_cfg.legacy_key_path else None
+    api_key, _source = config_load.resolve_secret(llm_cfg.key_env, config_dir=ctx.config_dir, legacy_path=legacy_path)
+    return api_key
+
+
+def _get_or_build_llm_client(ctx: RunContext, trace: TraceWriter, *, stage: str) -> llm_module.LlmClient | None:
+    """Build (once per pipeline invocation) and cache the ONE shared
+    ``LlmClient`` used by every LLM node this run (analysis/copy/prompt
+    craft), so the per-run budget (``llm.per_run_usd_cap`` /
+    ``per_run_call_cap``) is enforced across all of them together rather
+    than reset per stage. Returns ``None`` — every caller then degrades to
+    its pre-existing non-LLM path — when the LLM is disabled in config or
+    its API key does not resolve anywhere (the same fail-closed-to-degrade
+    posture ``collectors/virlo.py`` and ``media_gen.py`` already hold their
+    own key resolution to)."""
+    assert ctx.generation is not None
+    if "llm_client" in ctx.extra:
+        client = ctx.extra["llm_client"]
+        if client is not None:
+            client.set_stage(stage)
+        return client
+
+    llm_cfg = ctx.generation.llm
+    if not llm_cfg.enabled:
+        ctx.extra["llm_client"] = None
+        return None
+
+    api_key = _resolve_llm_api_key(ctx)
+    if not api_key:
+        trace.decision(
+            stage,
+            decision=(
+                f"OpenRouter API key not resolved ({llm_cfg.key_env} / .env / legacy key file) — "
+                "every LLM node this run degrades to its non-LLM path"
+            ),
+            rule="W8-9 Phase 1 fail-closed-to-degrade posture: same as Virlo/Kie's own key resolution",
+        )
+        ctx.extra["llm_client"] = None
+        return None
+
+    fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
+    client = llm_module.LlmClient(config=llm_cfg, fetcher=fetcher, api_key=api_key, trace=trace, stage=stage)
+    ctx.extra["llm_client"] = client
+    return client
+
+
+def _load_style_guide_safe(ctx: RunContext) -> dict[str, Any] | None:
+    """Soft-load ``config/style_guide.yaml`` — cached on ``ctx.extra`` so
+    every LLM-grounded stage this run shares one copy. ``None`` when the
+    file is missing/unreadable/unparseable; every caller degrades to its
+    pre-existing non-LLM-grounded path (``load_style_guide``'s own
+    docstring) rather than failing the run over a missing style guide."""
+    if "style_guide" in ctx.extra:
+        return ctx.extra["style_guide"]
+    try:
+        guide = load_style_guide(ctx.config_dir)
+    except ConfigError:
+        guide = None
+    ctx.extra["style_guide"] = guide
+    return guide
+
+
+def stage_analysis(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """N-A Trend & Visual Analyst (W8-9 Q3a; FLOW_MAP.md's ``analysis``
+    stage). Runs between ``collection`` and ``ranking`` but does NOT feed
+    ranking in v1 (ranking stays fully deterministic) — its output
+    (``analysis/viral_playbook.yaml``) feeds ``copy`` instead, and its path
+    is carried into ``resume_state.yaml`` (via ``stage_spin``) so a
+    ``--resume`` re-entry into ``copy`` still has it without re-running this
+    stage.
+
+    Never fails the run (see ``hypeagent.analysis`` module docstring): no
+    Virlo corpus this run, the LLM disabled in config, an exhausted LLM
+    budget, or a failed call all produce an explicit, empty-but-valid
+    playbook and the pipeline continues."""
+    assert ctx.generation is not None and ctx.store is not None
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+    media_dir = ctx.store.artifacts_dir / ctx.run_id / "virlo_media"
+
+    llm_client = _get_or_build_llm_client(ctx, trace, stage="analysis")
+    style_guide = _load_style_guide_safe(ctx)
+
+    playbook = analysis.run_trend_visual_analyst(
+        run_dir=run_dir, media_dir=media_dir, style_guide=style_guide, llm_client=llm_client,
+        trace=trace, stage="analysis", max_images=ctx.generation.llm.analyst_max_images,
+    )
+    ctx.extra["viral_playbook"] = playbook
+    ctx.extra["viral_playbook_path"] = str(run_dir / analysis.VIRAL_PLAYBOOK_DIRNAME / analysis.VIRAL_PLAYBOOK_FILENAME)
+
+    outcome = "degraded" if playbook.degraded else "ok"
+    return StageResult(
+        outcome=outcome,
+        items_in=1,
+        items_out=len(playbook.themes),
+        extra={
+            "skipped": playbook.skipped,
+            "skip_reason": playbook.skip_reason,
+            "degrade_reason": playbook.degrade_reason,
+            "theme_count": len(playbook.themes),
+        },
+    )
+
+
 def stage_ranking(ctx: RunContext, trace: TraceWriter) -> StageResult:
     """Cluster -> fit gate -> composite -> cross-day dedupe -> top-N cap
     (§2.7, §2.8, §2.8a)."""
@@ -476,6 +585,7 @@ def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
             spin_results=spin_results,
             cs_holds=cs_holds,
             degraded_sources=list(ctx.extra.get("degraded_sources", [])),
+            viral_playbook_path=ctx.extra.get("viral_playbook_path"),
         ),
     )
 
@@ -487,8 +597,36 @@ def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
-def _build_copy_provider(ctx: RunContext, run_dir: Path) -> copy_gen.TextModel:
+def _build_copy_provider(ctx: RunContext, run_dir: Path, trace: TraceWriter | None = None) -> copy_gen.TextModel:
+    """Provider selection (W8-9 Q3b): ``openrouter`` is the enabled LLM
+    path — it only actually activates when ``generation.llm.enabled`` is
+    true AND an API key resolves (``_get_or_build_llm_client`` returns a
+    client); otherwise this falls through to ``InteractiveFileProvider``,
+    exactly the same degrade-to-fallback posture ``openai-compatible-http``
+    already had for its own disabled/unconfigured case. ``trace`` is
+    ``None``-safe as long as the LLM is disabled (the common case in tests
+    that construct a provider directly without a live pipeline run) —
+    ``_get_or_build_llm_client`` never touches ``trace`` on that path."""
     assert ctx.generation is not None
+    if ctx.generation.copy_provider == "openrouter" and trace is not None:
+        llm_client = _get_or_build_llm_client(ctx, trace, stage="copy")
+        if llm_client is not None:
+            style_guide = _load_style_guide_safe(ctx)
+            viral_playbook = ctx.extra.get("viral_playbook")
+            if viral_playbook is None:
+                playbook_path = ctx.extra.get("viral_playbook_path")
+                if playbook_path:
+                    viral_playbook = analysis.load_viral_playbook_file(Path(playbook_path))
+            brand_identity = ""
+            panel = ctx.extra.get("brand_truth_panel")
+            if panel is not None:
+                brand_identity = str(
+                    panel.facts.identity.get("one_liner_en") or panel.facts.identity.get("legal_name") or ""
+                )
+            return copy_gen.OpenRouterProvider(
+                llm_client=llm_client, style_guide=style_guide, viral_playbook=viral_playbook,
+                brand_identity_one_liner=brand_identity,
+            )
     if ctx.generation.copy_provider == "openai-compatible-http" and ctx.generation.openai_compatible.enabled:
         fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
         return copy_gen.OpenAICompatibleProvider(ctx.generation.openai_compatible, fetcher)
@@ -522,7 +660,7 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
         ctx.extra["copy_asset_statuses"] = []
         return StageResult(outcome="ok", items_in=0, items_out=0)
 
-    provider = _build_copy_provider(ctx, run_dir)
+    provider = _build_copy_provider(ctx, run_dir, trace)
     negative_capabilities = panel.facts.capabilities_negative
     pricing_policy_line = f"{panel.facts.pricing_policy}: {panel.facts.pricing_rationale}".strip()
     allowed_facts = [
@@ -549,7 +687,7 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
             status = copy_gen.process_copy_asset(
                 provider=provider, request=request, snapshot=panel.snapshot,
                 hard_excludes=ctx.theme_config.hard_excludes, max_attempts=ctx.generation.repair_budget,
-                trace=trace, stage="copy",
+                trace=trace, stage="copy", run_dir=run_dir,
             )
             statuses.append(status)
 
@@ -565,6 +703,54 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def _craft_media_prompts_for_run(
+    ctx: RunContext, trace: TraceWriter, copy_statuses: list[copy_gen.AssetCopyStatus]
+) -> dict[str, promptcraft.CraftedPromptSet]:
+    """N-D Image-Prompt Crafter (W8-9 Q3c), invoked from the media stage:
+    one crafted prompt set per gated-pass copy asset. Persists
+    ``media_prompts.yaml`` and is resume-idempotent — an asset_id already
+    present on disk is reused rather than re-crafted (and re-spent) on a
+    ``--resume`` re-entry into ``media``."""
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+    gated = [s for s in copy_statuses if s.status == "gated-pass"]
+    if not gated:
+        return {}
+
+    existing = promptcraft.load_media_prompts(run_dir)
+    prompt_sets: dict[str, promptcraft.CraftedPromptSet] = dict(existing)
+    to_craft = [s for s in gated if s.asset_id not in prompt_sets]
+    if not to_craft:
+        return prompt_sets
+
+    llm_client = _get_or_build_llm_client(ctx, trace, stage="media")
+    style_guide = _load_style_guide_safe(ctx)
+    viral_playbook = ctx.extra.get("viral_playbook")
+    if viral_playbook is None:
+        playbook_path = ctx.extra.get("viral_playbook_path")
+        if playbook_path:
+            viral_playbook = analysis.load_viral_playbook_file(Path(playbook_path))
+    spin_results: dict[str, spin_module.SpinResult] = ctx.extra.get("spin_results", {})
+    panel = ctx.extra.get("brand_truth_panel")
+    hard_excludes = ctx.theme_config.hard_excludes if ctx.theme_config is not None else None
+
+    for status in to_craft:
+        sr = spin_results.get(status.cluster_key)
+        topic = sr.topic if sr is not None else None
+        theme_playbook = viral_playbook.theme_playbook(topic) if viral_playbook is not None else None
+        series_token = promptcraft.series_token_for(ctx.run_id, status.cluster_key)
+        prompt_set = promptcraft.craft_prompts(
+            llm_client=llm_client, asset_id=status.asset_id, destination=status.destination,
+            headline=status.headline or "", caption=status.caption or "", image_brief=status.image_brief or "",
+            slides=status.slides, style_guide=style_guide, theme_playbook=theme_playbook, series_token=series_token,
+        )
+        if panel is not None:
+            prompt_set = promptcraft.gate_check_prompts(prompt_set, snapshot=panel.snapshot, hard_excludes=hard_excludes)
+        prompt_sets[status.asset_id] = prompt_set
+
+    promptcraft.write_media_prompts(run_dir, prompt_sets)
+    return prompt_sets
+
+
 def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
     """Kie.ai draft-tier image generation (GOAL_ROADMAP.md M4): one image
     per gated-pass copy asset (§4.6: plan-only is always produced for
@@ -578,7 +764,8 @@ def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
     gated-pass asset plans only, at zero cost, and the run continues."""
     assert ctx.generation is not None and ctx.store is not None
     copy_statuses = ctx.extra.get("copy_asset_statuses") or []
-    plans = media_gen.plan_media_assets(copy_statuses, language=GENERATION_LANGUAGE)
+    crafted_prompts = _craft_media_prompts_for_run(ctx, trace, copy_statuses)
+    plans = media_gen.plan_media_assets(copy_statuses, language=GENERATION_LANGUAGE, crafted_prompts=crafted_prompts)
     if not plans:
         ctx.extra["media_asset_statuses"] = []
         return StageResult(outcome="ok", items_in=0, items_out=0)
@@ -733,6 +920,7 @@ def _media_price_snapshot_date(ctx: RunContext) -> str | None:
 CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
     ("theme_load", stage_theme_load),
     ("collection", stage_collection),
+    ("analysis", stage_analysis),
     ("ranking", stage_ranking),
     ("brand_truth", stage_brand_truth),
     ("spin", stage_spin),
@@ -862,6 +1050,7 @@ def resume_pipeline(ctx: RunContext, trace: TraceWriter, resume_state: resume_st
     ctx.extra["spin_results"] = resume_state.spin_results
     ctx.extra["cs_holds"] = resume_state.cs_holds
     ctx.extra["degraded_sources"] = resume_state.degraded_sources
+    ctx.extra["viral_playbook_path"] = resume_state.viral_playbook_path
     resume_stages = tuple((name, fn) for name, fn in CANONICAL_STAGES if name in RESUME_STAGE_NAMES)
     exit_class = _run_stage_list(ctx, trace, resume_stages)
     _generate_process_summary_best_effort(ctx, trace, exit_class)

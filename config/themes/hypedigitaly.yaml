@@ -198,10 +198,12 @@ ranking:
 generation:
   destinations: [linkedin, instagram_feed]
 
-  # interactive-file (default, costs nothing, the finish-line path for this
-  # goal) | openai-compatible-http (generic, config-driven, disabled below —
-  # no key exists for this goal).
-  copy_provider: interactive-file
+  # openrouter (W8-9 Q3b: N-C Copywriter, the enabled LLM path — see
+  # `llm:` block below) | interactive-file (costs nothing, operator fills
+  # copy_responses/*.yaml by hand; the automatic fallback whenever `llm.
+  # enabled` is false or no OPENROUTER_API_KEY resolves) | openai-compatible-
+  # http (generic, config-driven, disabled below — kept for structure only).
+  copy_provider: openrouter
 
   # Combined per-artifact repair ceiling (§14.0): spin/claim regenerate
   # attempts counted together, small and fixed.
@@ -227,6 +229,44 @@ generation:
     model: ""
     key_path: ""
     max_tokens: 400
+
+  # W8-9 Q2/Q3 — the OpenRouter-backed LLM client shared by every LLM node
+  # (N-A analyst, N-C copywriter, N-D prompt crafter). Key resolves via
+  # OPENROUTER_API_KEY: real environment variable > repo-root .env >
+  # secrets/openrouter.key (legacy, deprecated but still supported) — same
+  # precedence as every other secret in this engine (config_load.resolve_secret).
+  # Fail-closed-to-degrade: no key resolving anywhere means every LLM node
+  # this run falls back to its pre-existing non-LLM path (interactive-file
+  # copy, compose_prompt image briefs, no viral playbook) — never a hard
+  # run failure.
+  llm:
+    enabled: true
+    provider: openrouter
+    base_url: "https://openrouter.ai/api/v1"
+    model: "anthropic/claude-sonnet-5"
+    key_env: "OPENROUTER_API_KEY"
+    legacy_key_path: "secrets/openrouter.key"
+    default_temperature: 0.4
+    default_max_tokens: 1500
+    # Estimated USD/1M tokens, used only when a response omits its own
+    # `usage.cost` (OpenRouter reported one on every live verification call
+    # this milestone) — live-verified 2026-08-07 against OpenRouter's own
+    # `GET /api/v1/models` listing for anthropic/claude-sonnet-5
+    # (prompt $0.000002/token, completion $0.00001/token). Anthropic/
+    # OpenRouter may reprice this model at any time; treat as an estimate.
+    usd_per_1m_input_tokens: 2.0
+    usd_per_1m_output_tokens: 10.0
+    # Per-run caps (this pipeline invocation only — analysis + copy + prompt
+    # craft share ONE budget, enforced by the one shared hypeagent.llm.LlmClient
+    # instance per run). Exceeding either: no more LLM calls this run: every
+    # remaining node degrades to its non-LLM path, the run continues.
+    per_run_usd_cap: 1.00
+    per_run_call_cap: 20
+    # Up to this many downloaded Virlo thumbnails/carousel panels are sent
+    # to the N-A analyst as vision content-parts (base64), preferring full
+    # carousel panel sets over single video thumbnails.
+    analyst_max_images: 12
+    node_overrides: {}
 
   # M4 (GOAL_ROADMAP.md) — Kie.ai draft-tier image generation. Both caps
   # are checked at every submission (§8.11); whichever trips first stops

@@ -64,6 +64,11 @@ class ResumeState:
     spin_results: dict[str, SpinResult]
     cs_holds: list[dict[str, str]]
     degraded_sources: list[DegradedSourceNote]
+    # W8-9 Q3a: the analysis stage's ``viral_playbook.yaml`` path (``None``
+    # when the stage never ran on this run_id — e.g. a run predating this
+    # engine version). ``copy`` reads it back on ``--resume`` re-entry
+    # without re-running ``analysis`` (which is not in ``RESUME_STAGE_NAMES``).
+    viral_playbook_path: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +237,7 @@ def write_resume_state(run_dir: Path, state: ResumeState) -> Path:
         "spin_results": {k: _spin_result_to_dict(v) for k, v in state.spin_results.items()},
         "cs_holds": list(state.cs_holds),
         "degraded_sources": [_degraded_source_to_dict(d) for d in state.degraded_sources],
+        "viral_playbook_path": state.viral_playbook_path,
     }
     path = Path(run_dir) / RESUME_STATE_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,4 +261,5 @@ def load_resume_state(run_dir: Path) -> ResumeState | None:
         spin_results={k: _spin_result_from_dict(v) for k, v in (data.get("spin_results") or {}).items()},
         cs_holds=list(data.get("cs_holds") or []),
         degraded_sources=[_degraded_source_from_dict(d) for d in (data.get("degraded_sources") or [])],
+        viral_playbook_path=data.get("viral_playbook_path"),
     )

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from hypeagent.brand_truth import ClaimEntry, ClaimSnapshot
 from hypeagent.config_load import ResolvedList
@@ -165,8 +166,20 @@ def run_claim_gate(
     image_brief: str,
     snapshot: ClaimSnapshot,
     hard_excludes: dict[str, ResolvedList] | None = None,
+    slides: list[dict[str, Any]] | None = None,
 ) -> ClaimGateVerdict:
+    """``slides`` (W8-9 Q3b) extends the gated surface to a carousel copy
+    asset's per-slide ``title``/``body`` text — the same deterministic
+    checks below run over every slide exactly as they run over
+    headline/caption/image_brief; a failing span's ``field_name`` names the
+    slide index and part (e.g. ``slide_1_title``) so the repair loop can
+    point the model at exactly which slide needs a rewrite."""
     fields: dict[str, str] = {"headline": headline or "", "caption": caption or "", "image_brief": image_brief or ""}
+    for i, slide in enumerate(slides or [], start=1):
+        if not isinstance(slide, dict):
+            continue
+        fields[f"slide_{i}_title"] = str(slide.get("title") or "")
+        fields[f"slide_{i}_body"] = str(slide.get("body") or "")
     spans: list[ClaimSpan] = []
     entity_lexicon = _entity_lexicon(hard_excludes)
     # A kvalifikovat claim's qualification (e.g. a stated period, a

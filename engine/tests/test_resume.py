@@ -119,6 +119,15 @@ class TestResumeConsumesResponse:
         assert (requests_dir / f"{held.asset_id}.yaml").exists()
         assert (run_dir / resume_state_module.RESUME_STATE_FILENAME).exists()
 
+        # W8-9 Q3a: the analysis stage's viral_playbook.yaml path round-trips
+        # into resume_state.yaml and back out on --resume, even on the
+        # LLM-disabled default path (the file is always written, empty-but-
+        # valid, exactly per hypeagent.analysis's module contract).
+        assert ctx.extra.get("viral_playbook_path")
+        assert Path(ctx.extra["viral_playbook_path"]).exists()
+        resume_state_on_disk = resume_state_module.load_resume_state(run_dir)
+        assert resume_state_on_disk.viral_playbook_path == ctx.extra["viral_playbook_path"]
+
         seq_after_first_pass = last_seq_in_trace(trace_path)
         stages_seen_before = {ev["stage"] for ev in _trace_lines(trace_path)}
         assert "collection" in stages_seen_before and "ranking" in stages_seen_before
@@ -132,6 +141,11 @@ class TestResumeConsumesResponse:
         matching = next(s for s in statuses2 if s.asset_id == held.asset_id)
         assert matching.status == "gated-pass"
         assert matching.headline
+
+        # ``analysis`` is not in RESUME_STAGE_NAMES (it never re-runs on
+        # --resume) -- the resumed context still carries the ORIGINAL run's
+        # viral_playbook_path forward from resume_state.yaml.
+        assert ctx2.extra.get("viral_playbook_path") == ctx.extra["viral_playbook_path"]
 
         # No key file was ever provisioned -- media plans only, at zero cost.
         media_statuses = ctx2.extra.get("media_asset_statuses", [])

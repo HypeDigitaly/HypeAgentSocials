@@ -11,14 +11,16 @@ import yaml
 
 from hypeagent.brand_truth import ClaimEntry, ClaimSnapshot
 from hypeagent.collectors.base import FetchResponse, FixtureFetcher
-from hypeagent.config_load import OpenAICompatibleConfig
+from hypeagent.config_load import LlmConfig, OpenAICompatibleConfig
 from hypeagent.copy_gen import (
     AI_DISCLOSURE_LINE,
     InteractiveFileProvider,
     OpenAICompatibleProvider,
+    OpenRouterProvider,
     build_copy_request,
     process_copy_asset,
 )
+from hypeagent.llm import LlmClient
 from hypeagent.spin import SpinResult
 
 DISCLOSURE = AI_DISCLOSURE_LINE
@@ -43,9 +45,9 @@ def _snapshot(claims=None) -> ClaimSnapshot:
     )
 
 
-def _request(asset_id="ck1_linkedin", attempt=1):
+def _request(asset_id="ck1_linkedin", attempt=1, destination="linkedin"):
     return build_copy_request(
-        asset_id=asset_id, destination="linkedin", spin=_spin_result(), excerpt_refs=["hacker_news:1"],
+        asset_id=asset_id, destination=destination, spin=_spin_result(), excerpt_refs=["hacker_news:1"],
         allowed_facts=[], negative_capabilities=["No physical products"],
         pricing_policy_line="prices-never-stated", hard_excludes={}, exemplar_pool_paths=["calibration/en/structural_corpus.md"],
         snapshot_id="test-snap", attempt=attempt,
@@ -216,3 +218,145 @@ class TestOpenAICompatibleProviderShapeOnly:
         assert "AI agents automating outbound sales" in sent_body["messages"][0]["content"]
         # The API key must never leak into the body sent — only the header.
         assert "sk-test-key" not in json.dumps(sent_body)
+
+    def test_prior_failing_spans_included_in_prompt_on_repair(self, tmp_path):
+        """W8-9 Q2 fix: the original prompt dropped prior_failing_spans (and
+        negative_capabilities/hard_excludes) on the floor entirely."""
+        key_path = tmp_path / "openai.key"
+        key_path.write_text("sk-test-key", encoding="utf-8")
+        config = OpenAICompatibleConfig(
+            enabled=True, base_url="https://api.example.com/v1", model="test-model", key_path=str(key_path),
+            max_tokens=200,
+        )
+        response_payload = {
+            "choices": [{"message": {"content": json.dumps({
+                "headline": "AI agents are changing outbound sales",
+                "caption": f"Copy body. {DISCLOSURE}",
+                "image_brief": "A desk.",
+            })}}]
+        }
+        fetcher = FixtureFetcher(responses={
+            "api.example.com/v1/chat/completions": FetchResponse(
+                status=200, headers={}, body=json.dumps(response_payload).encode("utf-8"), latency_ms=5,
+            ),
+        })
+        provider = OpenAICompatibleProvider(config, fetcher)
+        request = _request(attempt=2)
+        request = type(request)(**{**request.__dict__, "prior_failing_spans": ["caption: superlative 'best' — blocked"]})
+        provider.generate(request)
+        sent_body = json.loads(fetcher.request_bodies[0])
+        prompt_text = sent_body["messages"][0]["content"]
+        assert "superlative" in prompt_text
+        assert "No physical products" in prompt_text  # negative_capabilities
+
+
+ENDPOINT_KEY = "chat/completions"
+
+
+def _ok_llm_response(payload: dict) -> FetchResponse:
+    body = {
+        "choices": [{"message": {"content": json.dumps(payload)}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "cost": 0.001},
+    }
+    return FetchResponse(status=200, headers={}, body=json.dumps(body).encode("utf-8"), latency_ms=10)
+
+
+class _QueueFetcher:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+        self.request_bodies = []
+
+    def fetch(self, url, *, headers=None, method="GET", body=None):
+        self.calls.append(url)
+        self.request_bodies.append(body)
+        return self._responses.pop(0)
+
+
+def _llm_client(fetcher, tmp_path) -> LlmClient:
+    from hypeagent.trace import TraceWriter
+
+    tw = TraceWriter(tmp_path / "trace.jsonl", "run-1")
+    return LlmClient(config=LlmConfig(enabled=True), fetcher=fetcher, api_key="sk-secret", trace=tw)
+
+
+class TestOpenRouterProviderLinkedinSchema:
+    def test_linkedin_result_has_no_slides(self, tmp_path):
+        fetcher = FixtureFetcher(responses={
+            ENDPOINT_KEY: _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "image_direction": "a desk"}
+            )
+        })
+        client = _llm_client(fetcher, tmp_path)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={"platforms": {"linkedin": {"copy": {"form": "long_post"}}}},
+            viral_playbook=None, brand_identity_one_liner="HypeDigitaly is a Czech AI agency.",
+        )
+        result = provider.generate(_request(destination="linkedin"))
+        assert result.slides is None
+        assert result.headline == "hi"
+        assert result.image_brief == "a desk"
+
+
+class TestOpenRouterProviderCarouselSchema:
+    def test_instagram_result_carries_slides(self, tmp_path):
+        slides = [
+            {"role": "cover", "title": "Cover", "body": ""},
+            {"role": "body", "title": "Step 1", "body": "Do the thing."},
+            {"role": "end_card", "title": "Follow us", "body": ""},
+        ]
+        fetcher = FixtureFetcher(responses={
+            ENDPOINT_KEY: _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": slides, "image_direction": "a desk"}
+            )
+        })
+        client = _llm_client(fetcher, tmp_path)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={"platforms": {"instagram_feed": {"copy": {"carousel": {"slides": [6, 10]}}}}},
+            viral_playbook=None, brand_identity_one_liner="HypeDigitaly is a Czech AI agency.",
+        )
+        result = provider.generate(_request(asset_id="ck1_instagram_feed", destination="instagram_feed"))
+        assert result.slides == [{**s, "component": ""} for s in slides]
+        sent_body = json.loads(fetcher.request_bodies[0])
+        assert "carousel" in sent_body["messages"][1]["content"].lower()
+
+
+class TestOpenRouterGateRepairCarriesFailingSpans:
+    def test_second_request_body_carries_prior_failing_spans(self, tmp_path):
+        bad_payload = {"headline": "The best AI chatbot ever", "caption": f"Guaranteed results. {DISCLOSURE}", "image_direction": ""}
+        good_payload = {"headline": "AI agents are changing outbound sales", "caption": f"Clean copy. {DISCLOSURE}", "image_direction": "a desk"}
+        fetcher = _QueueFetcher([_ok_llm_response(bad_payload), _ok_llm_response(good_payload)])
+        client = _llm_client(fetcher, tmp_path)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={}, viral_playbook=None,
+            brand_identity_one_liner="HypeDigitaly is a Czech AI agency.",
+        )
+        status = process_copy_asset(
+            provider=provider, request=_request(), snapshot=_snapshot(), max_attempts=2, run_dir=tmp_path,
+        )
+        assert status.status == "gated-pass"
+        assert status.attempt == 2
+        assert len(fetcher.request_bodies) == 2
+        second_body = json.loads(fetcher.request_bodies[1])
+        second_user_text = second_body["messages"][1]["content"]
+        assert "superlative" in second_user_text.lower() or "guarantee" in second_user_text.lower()
+        # Own-authored LLM copy is persisted for the process summary/provenance.
+        assert (tmp_path / "copy_requests" / "ck1_linkedin.yaml").exists()
+        assert (tmp_path / "copy_responses" / "ck1_linkedin.attempt2.yaml").exists()
+
+
+class TestCopyProviderFallbackWhenLlmDisabled:
+    def test_stage_falls_back_to_interactive_file_when_llm_disabled(self, tmp_path):
+        from hypeagent import stages
+
+        ctx = stages.RunContext(run_id="x", config_dir=tmp_path / "config", logs_dir=tmp_path / "logs")
+        from hypeagent.config_load import GenerationConfig, MappingDistanceBands, MediaConfig
+
+        ctx.generation = GenerationConfig(
+            destinations=["linkedin"], copy_provider="openrouter", repair_budget=2,
+            mapping_distance=MappingDistanceBands(), exemplar_pool=[],
+            openai_compatible=OpenAICompatibleConfig(), media=MediaConfig(),
+            llm=LlmConfig(enabled=False),
+        )
+        provider = stages._build_copy_provider(ctx, tmp_path / "logs" / "runs" / "x")
+        assert isinstance(provider, InteractiveFileProvider)

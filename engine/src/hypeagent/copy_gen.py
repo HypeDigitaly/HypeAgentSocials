@@ -51,6 +51,7 @@ from hypeagent.claim_gate import ClaimGateVerdict, run_claim_gate
 from hypeagent.brand_truth import ClaimSnapshot
 from hypeagent.collectors.base import Fetcher
 from hypeagent.config_load import OpenAICompatibleConfig, ResolvedList
+from hypeagent.llm import LlmClient, LlmError
 from hypeagent.spin import SpinResult
 
 AI_DISCLOSURE_LINE = "[AI-generated content]"
@@ -133,6 +134,12 @@ class CopyResult:
     image_brief: str
     provider: str
     raw: dict[str, Any] | None = None
+    # W8-9 Q3b: carousel destinations (instagram_feed/tiktok) carry per-slide
+    # copy here — ``None`` for every non-carousel path (linkedin, and every
+    # pre-existing provider/test), so this is a purely additive, backward-
+    # compatible field. Each slide dict is ``{"role", "title", "body",
+    # "component"}`` (component optional/empty string when unused).
+    slides: list[dict[str, str]] | None = None
 
 
 class TextModel(Protocol):
@@ -153,7 +160,7 @@ class InteractiveFileProvider:
         self.run_dir = Path(run_dir)
 
     def _paths(self, request: CopyRequest) -> tuple[Path, Path]:
-        suffix = "" if request.attempt <= 1 else f".attempt{request.attempt}"
+        suffix = _attempt_suffix(request.attempt)
         req_path = self.run_dir / "copy_requests" / f"{request.asset_id}{suffix}.yaml"
         resp_path = self.run_dir / "copy_responses" / f"{request.asset_id}{suffix}.yaml"
         return req_path, resp_path
@@ -231,13 +238,212 @@ class OpenAICompatibleProvider:
 
 
 def _build_prompt(request: CopyRequest) -> str:
-    return (
+    """W8-9 Q2 fix: the original version of this prompt dropped most of
+    ``CopyRequest`` on the floor -- most notably ``prior_failing_spans``,
+    which meant a regeneration attempt on this provider carried no
+    corrective context at all and would very likely reproduce the exact
+    same claim-gate failure. Every field that changes attempt-to-attempt
+    (failing spans) or that the model must never violate (negative
+    capabilities, hard excludes) is now included."""
+    parts = [
         "Write social copy as JSON with keys headline, caption, image_brief. "
         f"Topic: {request.topic}. ICP: {request.icp_text}. Pain: {request.pain}. "
         f"Offer: {request.offer_text or 'none — value-only'}. CTA class: {request.cta_class}. "
         f"Destination: {request.destination}. Must include an AI-generated-content disclosure "
-        f"line in the caption. Allowed facts: {json.dumps(request.allowed_facts, ensure_ascii=False)}."
+        f"line in the caption. Allowed facts: {json.dumps(request.allowed_facts, ensure_ascii=False)}.",
+        f"Negative capabilities (never imply any of these): "
+        f"{json.dumps(request.negative_capabilities, ensure_ascii=False)}.",
+        f"Hard excludes (never mention any of these): {json.dumps(request.hard_excludes, ensure_ascii=False)}.",
+    ]
+    if request.prior_failing_spans:
+        parts.append(
+            "Your previous attempt was BLOCKED by the claim gate for these exact reasons — fix every "
+            f"one of them in this attempt: {json.dumps(request.prior_failing_spans, ensure_ascii=False)}."
+        )
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Provider 3: openrouter — N-C Copywriter, the enabled LLM path (W8-9 Q3b).
+# Grounds in everything ``CopyRequest`` carries PLUS what it never carried at
+# all: the brand identity one-liner, the FULL style_guide platform skeleton
+# for the destination, and this run's viral-playbook section for the
+# topic — see FLOW_MAP.md §3's N-C row for the exact input/output contract.
+# ---------------------------------------------------------------------------
+
+_CAROUSEL_DESTINATIONS = ("instagram_feed", "tiktok")
+
+
+def _platform_skeleton(style_guide: dict[str, Any], destination: str) -> dict[str, Any]:
+    platforms = style_guide.get("platforms") or {}
+    block = platforms.get(destination)
+    return block if isinstance(block, dict) else {}
+
+
+def _viral_playbook_section(viral_playbook: Any | None, topic: str) -> str:
+    """``viral_playbook`` is an ``analysis.ViralPlaybook`` — typed ``Any``
+    here (duck-typed via ``theme_playbook``/``skipped``/``degraded``) so
+    this module never has to import ``analysis`` (which itself imports
+    ``llm``, imported here already) purely for a type annotation."""
+    if viral_playbook is None:
+        return "No viral playbook available this run — ground purely in the style guide and your own judgment."
+    theme_pb = None
+    if hasattr(viral_playbook, "theme_playbook"):
+        theme_pb = viral_playbook.theme_playbook(topic)
+    if theme_pb is None:
+        reason = getattr(viral_playbook, "skip_reason", None) or getattr(viral_playbook, "degrade_reason", None)
+        if reason:
+            return (
+                f"No viral playbook available this run ({reason}) — ground purely in the style guide "
+                "and your own judgment."
+            )
+        return "No matching theme in this run's viral playbook — ground purely in the style guide and your own judgment."
+    return yaml.safe_dump(theme_pb.to_yaml_dict(), allow_unicode=True, sort_keys=False)
+
+
+def _build_openrouter_prompt(
+    request: CopyRequest,
+    *,
+    style_guide: dict[str, Any],
+    viral_playbook: Any | None,
+    brand_identity_one_liner: str,
+) -> tuple[str, str, str]:
+    """Returns ``(system, user_content, schema_hint)`` for
+    ``LlmClient.call_json``."""
+    wants_slides = request.destination in _CAROUSEL_DESTINATIONS
+    skeleton = _platform_skeleton(style_guide, request.destination)
+
+    system = (
+        "You are the Copywriter (N-C) for HypeDigitaly's AI-agency social content pipeline "
+        "(FLOW_MAP.md node N-C). "
+        f"Brand: {brand_identity_one_liner} "
+        "You write ONLY within the rules given below — you never state a price or a price-shaped "
+        "figure, you never claim a number that is not in the allowed_facts list, you never use "
+        "superlative/guarantee/therapeutic-outcome language, and you ALWAYS include the exact "
+        f'disclosure line "{AI_DISCLOSURE_LINE}" in the caption. Trend-corpus numbers belong to the '
+        'trend, not to us — attribute them explicitly ("creators are reporting..."), never claim '
+        "them as our own results. Every deterministic rule you violate will be caught by a claim "
+        "gate and sent back to you for repair, so follow them exactly the first time."
     )
+
+    lines: list[str] = [
+        f"Destination: {request.destination}",
+        f"Topic: {request.topic}",
+        f"ICP: {request.icp_text}",
+        f"Pain: {request.pain}",
+        f"Offer: {request.offer_text or 'none — value-only (far mapping distance: no product CTA)'}",
+        f"Mapping distance: {request.mapping_distance} (value_only={request.value_only})",
+        f"CTA class: {request.cta_class}; CTA text: {request.cta_text}",
+        f"Pricing policy: {request.pricing_policy_line}",
+        f"Allowed facts (ONLY these numbers/claims are citable): "
+        f"{json.dumps(request.allowed_facts, ensure_ascii=False)}",
+        f"Negative capabilities (never imply): {json.dumps(request.negative_capabilities, ensure_ascii=False)}",
+        f"Hard excludes (never mention): {json.dumps(request.hard_excludes, ensure_ascii=False)}",
+        f"Disclosure requirement: {request.disclosure_requirement}",
+        "",
+        "Destination platform skeleton (style_guide.yaml — follow this shape exactly):",
+        yaml.safe_dump(skeleton, allow_unicode=True, sort_keys=False),
+        "",
+        "This run's viral playbook for this topic (winning hooks/formats/visual archetypes/numbers "
+        "seen in the niche this week):",
+        _viral_playbook_section(viral_playbook, request.topic),
+    ]
+    if request.prior_failing_spans:
+        lines.append("")
+        lines.append(
+            "Your previous attempt was BLOCKED by the deterministic claim gate for these exact "
+            "reasons — you MUST fix every one of them in this attempt (rewrite the offending text; "
+            "do not merely repeat it):"
+        )
+        lines.extend(f"- {s}" for s in request.prior_failing_spans)
+    if wants_slides:
+        lines.append("")
+        lines.append(
+            "This destination is a carousel: produce 6-10 slides, each "
+            '{"role": "cover"|"body"|"end_card", "title", "body", "component" (optional)}, '
+            "per the platform skeleton above."
+        )
+
+    if wants_slides:
+        schema_hint = (
+            'Schema: {"headline": string, "caption": string, "slides": '
+            '[{"role": "cover"|"body"|"end_card", "title": string, "body": string, '
+            '"component": string|null}], "image_direction": string}. "slides" must have between 6 '
+            "and 10 entries."
+        )
+    else:
+        schema_hint = 'Schema: {"headline": string, "caption": string, "image_direction": string}'
+
+    return system, "\n".join(lines), schema_hint
+
+
+def _parse_openrouter_response(data: dict[str, Any]) -> CopyResult:
+    headline = str(data.get("headline", ""))
+    caption = str(data.get("caption", ""))
+    image_direction = data.get("image_direction")
+    if not image_direction:
+        image_direction = data.get("image_brief", "")
+
+    slides: list[dict[str, str]] | None = None
+    slides_raw = data.get("slides")
+    if isinstance(slides_raw, list) and slides_raw:
+        slides = []
+        for item in slides_raw:
+            if not isinstance(item, dict):
+                continue
+            component = item.get("component")
+            slides.append(
+                {
+                    "role": str(item.get("role", "body")),
+                    "title": str(item.get("title", "")),
+                    "body": str(item.get("body", "")),
+                    "component": str(component) if component else "",
+                }
+            )
+
+    return CopyResult(
+        headline=headline, caption=caption, image_brief=str(image_direction), provider="openrouter",
+        raw=data, slides=slides,
+    )
+
+
+class OpenRouterProvider:
+    """N-C Copywriter (W8-9 Q3b) — the enabled LLM path, replacing
+    ``OpenAICompatibleProvider`` wherever ``generation.copy_provider ==
+    "openrouter"`` and ``generation.llm.enabled`` is true (provider
+    selection lives in ``stages._build_copy_provider``).
+    ``OpenAICompatibleProvider`` keeps working unchanged for backward
+    compatibility; ``InteractiveFileProvider`` remains the configured
+    fallback whenever the LLM is disabled or unavailable."""
+
+    def __init__(
+        self,
+        *,
+        llm_client: LlmClient,
+        style_guide: dict[str, Any] | None,
+        viral_playbook: Any | None,
+        brand_identity_one_liner: str,
+        node_name: str = "copywriter",
+    ) -> None:
+        self.llm_client = llm_client
+        self.style_guide = style_guide or {}
+        self.viral_playbook = viral_playbook
+        self.brand_identity_one_liner = brand_identity_one_liner
+        self.node_name = node_name
+
+    def generate(self, request: CopyRequest) -> CopyResult:
+        system, user_content, schema_hint = _build_openrouter_prompt(
+            request, style_guide=self.style_guide, viral_playbook=self.viral_playbook,
+            brand_identity_one_liner=self.brand_identity_one_liner,
+        )
+        try:
+            data = self.llm_client.call_json(
+                self.node_name, system=system, user_parts=user_content, schema_hint=schema_hint,
+                purpose=f"N-C copywriter — {request.destination} copy for {request.cluster_key} (attempt {request.attempt})",
+            )
+        except LlmError as exc:
+            raise CopyProviderError(f"openrouter copywriter: {exc}") from exc
+        return _parse_openrouter_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +522,46 @@ class AssetCopyStatus:
     caption: str | None = None
     image_brief: str | None = None
     request_path: str | None = None
+    # W8-9 Q3b: carousel per-slide copy, gate-passed. ``None`` for every
+    # non-carousel asset (unchanged shape for every existing consumer).
+    slides: list[dict[str, str]] | None = None
+
+
+def _attempt_suffix(attempt: int) -> str:
+    return "" if attempt <= 1 else f".attempt{attempt}"
+
+
+def _copy_request_path(run_dir: Path, request: CopyRequest) -> Path:
+    return run_dir / "copy_requests" / f"{request.asset_id}{_attempt_suffix(request.attempt)}.yaml"
+
+
+def _persist_llm_copy_io(run_dir: Path, request: CopyRequest, result: CopyResult | None) -> None:
+    """Generic ``copy_requests``/``copy_responses`` persistence for any
+    provider that does not manage its own file-based round trip (i.e.
+    everything except ``InteractiveFileProvider``, which already writes its
+    request file inside ``generate()`` and treats a missing response file as
+    "held"). Own-authored content — full text allowed (RUN_TRACE_SPEC.md §6:
+    this is not the third-party-text redaction rule's target)."""
+    suffix = _attempt_suffix(request.attempt)
+    req_dir = run_dir / "copy_requests"
+    req_dir.mkdir(parents=True, exist_ok=True)
+    req_path = req_dir / f"{request.asset_id}{suffix}.yaml"
+    if not req_path.exists():
+        req_path.write_text(
+            yaml.safe_dump(request.to_yaml_dict(), allow_unicode=True, sort_keys=False), encoding="utf-8"
+        )
+    if result is None:
+        return
+    resp_dir = run_dir / "copy_responses"
+    resp_dir.mkdir(parents=True, exist_ok=True)
+    resp_path = resp_dir / f"{request.asset_id}{suffix}.yaml"
+    doc: dict[str, Any] = {
+        "headline": result.headline, "caption": result.caption, "image_brief": result.image_brief,
+        "provider": result.provider,
+    }
+    if result.slides is not None:
+        doc["slides"] = result.slides
+    resp_path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def process_copy_asset(
@@ -327,23 +573,35 @@ def process_copy_asset(
     max_attempts: int = 2,
     trace: Any = None,
     stage: str = "copy",
+    run_dir: Path | None = None,
 ) -> AssetCopyStatus:
     """Run one copy asset through generation and the claim gate, honouring
     the combined per-artifact repair ceiling (§14.0): on a block, a
     regeneration request is written (same brief + the specific failing
     spans as corrective context) up to ``max_attempts`` attempts total.
     Never fabricates a fix silently — an exhausted budget blocks the asset
-    with the reason recorded, it does not retry forever."""
+    with the reason recorded, it does not retry forever.
+
+    ``run_dir`` (W8-9 Q3b) is used only for providers that do not manage
+    their own file persistence (``InteractiveFileProvider`` is detected via
+    its own ``request_path`` method, exactly as this function already
+    detected it for the request-path-in-status behaviour) — every LLM
+    provider's request/response still lands under ``copy_requests``/
+    ``copy_responses`` for the process summary and provenance to read.
+    """
     current = request
     request_path_str: str | None = None
+    is_file_backed_provider = hasattr(provider, "request_path")
     while True:
-        if hasattr(provider, "request_path"):
+        if is_file_backed_provider:
             request_path_str = str(provider.request_path(current))  # type: ignore[attr-defined]
         try:
             result = provider.generate(current)
         except CopyProviderError as exc:
             # §11.3 fifth fail-closed trigger: a gate/provider that cannot
             # run never defaults open.
+            if run_dir is not None and not is_file_backed_provider:
+                _persist_llm_copy_io(run_dir, current, None)
             return AssetCopyStatus(
                 asset_id=current.asset_id, cluster_key=current.cluster_key, destination=current.destination,
                 status=f"blocked — copy provider unavailable ({exc})", attempt=current.attempt,
@@ -355,9 +613,13 @@ def process_copy_asset(
                 status="held — awaiting operator copy", attempt=current.attempt, request_path=request_path_str,
             )
 
+        if run_dir is not None and not is_file_backed_provider:
+            _persist_llm_copy_io(run_dir, current, result)
+            request_path_str = str(_copy_request_path(run_dir, current))
+
         verdict: ClaimGateVerdict = run_claim_gate(
             headline=result.headline, caption=result.caption, image_brief=result.image_brief,
-            snapshot=snapshot, hard_excludes=hard_excludes,
+            snapshot=snapshot, hard_excludes=hard_excludes, slides=result.slides,
         )
         if trace is not None:
             failing_span_summary = "; ".join(f"{s.field_name}:{s.kind}:{s.text}" for s in verdict.failing_spans) or None
@@ -371,7 +633,7 @@ def process_copy_asset(
                 asset_id=current.asset_id, cluster_key=current.cluster_key, destination=current.destination,
                 status="gated-pass", attempt=current.attempt,
                 headline=result.headline, caption=result.caption, image_brief=result.image_brief,
-                request_path=request_path_str,
+                request_path=request_path_str, slides=result.slides,
             )
 
         failing_span_texts = [f"{s.field_name}: {s.kind} '{s.text}' — {s.reason}" for s in verdict.failing_spans]

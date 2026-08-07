@@ -703,3 +703,86 @@ class TestDryRun:
             assert result.total_spent_usd == 0.0
         finally:
             store.close()
+
+
+class TestCraftedHeroPromptWiring:
+    """W8-9 Q3c: the hero-image path prefers an N-D-crafted prompt over
+    ``compose_prompt(image_brief)`` when one is available on the plan."""
+
+    def test_crafted_hero_prompt_is_sent_instead_of_composed_prompt(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(
+                responses={
+                    "createTask": [_create_task_ok("task_crafted")],
+                    "recordInfo": [_record_info_success("task_crafted")],
+                    "chat/credit": [_credit_balance(100.0), _credit_balance(96.0)],
+                    RESULT_IMAGE_URL: [_image_response()],
+                }
+            )
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            plans = media_gen.plan_media_assets([_copy_status()])
+            plans[0].crafted_hero_prompt = "The N-D crafted prompt, verbatim text and all. @hypedigitaly."
+            result = generator.process(plans)
+            trace.close()
+
+            assert result.statuses[0].status == "generated"
+            create_task_body = json.loads(
+                next(b for url, b in zip(fetcher.calls, fetcher.request_bodies) if "createTask" in url)
+            )
+            assert create_task_body["input"]["prompt"] == "The N-D crafted prompt, verbatim text and all. @hypedigitaly."
+            expected_composed = media_gen.compose_prompt("A calm office desk, no people.", _registry())
+            assert create_task_body["input"]["prompt"] != expected_composed
+        finally:
+            store.close()
+
+    def test_no_crafted_prompt_falls_back_to_compose_prompt_exactly_as_before(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(
+                responses={
+                    "createTask": [_create_task_ok("task_fallback")],
+                    "recordInfo": [_record_info_success("task_fallback")],
+                    "chat/credit": [_credit_balance(100.0), _credit_balance(96.0)],
+                    RESULT_IMAGE_URL: [_image_response()],
+                }
+            )
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            plans = media_gen.plan_media_assets([_copy_status()])  # crafted_hero_prompt defaults to None
+            assert plans[0].crafted_hero_prompt is None
+            result = generator.process(plans)
+            trace.close()
+            assert result.statuses[0].status == "generated"
+            create_task_body = json.loads(
+                next(b for url, b in zip(fetcher.calls, fetcher.request_bodies) if "createTask" in url)
+            )
+            expected_composed = media_gen.compose_prompt("A calm office desk, no people.", _registry())
+            assert create_task_body["input"]["prompt"] == expected_composed
+        finally:
+            store.close()
+
+    def test_plan_media_assets_reads_crafted_prompts_map(self):
+        from hypeagent import promptcraft
+
+        statuses = [_copy_status()]
+        crafted = {
+            "ck1_linkedin": promptcraft.CraftedPromptSet(
+                asset_id="ck1_linkedin", images=[promptcraft.CraftedImage(slot="hero", prompt="crafted!")]
+            )
+        }
+        plans = media_gen.plan_media_assets(statuses, crafted_prompts=crafted)
+        assert plans[0].crafted_hero_prompt == "crafted!"
+
+    def test_plan_media_assets_ignores_crafted_prompt_when_copy_not_gated_pass(self):
+        from hypeagent import promptcraft
+
+        statuses = [_copy_status(status="held — awaiting operator copy", image_brief=None)]
+        crafted = {
+            "ck1_linkedin": promptcraft.CraftedPromptSet(
+                asset_id="ck1_linkedin", images=[promptcraft.CraftedImage(slot="hero", prompt="crafted!")]
+            )
+        }
+        plans = media_gen.plan_media_assets(statuses, crafted_prompts=crafted)
+        assert plans[0].crafted_hero_prompt is None
