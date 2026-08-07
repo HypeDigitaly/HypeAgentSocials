@@ -1,64 +1,69 @@
 # FLOW MAP — the entire pipeline, data flow, LLM steps, inputs & outputs
 
 *Single source of truth for how a run works. Authored 2026-08-07 under W8-9; re-audited
-2026-08-07 after the first full live run (`2026-08-07_e4d8`) and the defect-fix round
-(commit `539e808`, 316 tests green). Status tags: 🟢 **LIVE-PROVEN** (exercised in run
-e4d8) · ✅ **FIXED** (defect found in e4d8, repaired offline in `539e808`, awaiting live
-confirmation) · 🟠 **PROPOSED** (re-audit recommendation, not yet decided/built).
-Update this file whenever the flow changes.*
+after live run `2026-08-07_e4d8`; **rebuilt under W8-10** (commit `f4b2943`, 515 tests)
+from the three-lens output audit + the Virlo inspiration-fidelity trace. Status: 🟢
+live-proven (e4d8) · 🆕 W8-10 (built + offline-tested, awaiting the confirmation run).
+Update this file AND republish the artifact (same URL) on every flow amendment — standing
+PRD rule.*
 
 ---
 
-## 1. The whole flow at a glance
+## 1. The whole flow at a glance (W8-10 order — ranking now precedes analysis)
 
 ```mermaid
 flowchart TD
     subgraph SOURCES["📡 SOURCES"]
-        V["Virlo monitor v2 (intelligence) 🟢<br/>/videos 644 items · /slideshows 218 carousels<br/>+ themes/tactics — ALL FREE READS<br/>(9 GETs, 3.3 MB, $0 in e4d8)"]
+        V["Virlo monitor v2 🟢 — ALL FREE READS<br/>/videos + /slideshows: captions, hooks,<br/>panel texts, metrics, theme intelligence<br/>+ real creative images (thumbnails + panels)"]
         FREE["4 free collectors 🟢<br/>HackerNews · Google News EN+CS<br/>HuggingFace · ProductHunt"]
     end
 
     subgraph COLLECT["STAGE: collection 🟢"]
-        C1["normalize → RawItem → SQLite store<br/>FULL captions, hook_text, panel_texts,<br/>tactics, why_it_works kept<br/>top-K image download (cap 24)<br/>→ virlo_corpus.yaml + virlo_media/"]
+        C1["normalize → SQLite store<br/>virlo_corpus.yaml (full rich fields)<br/>top-K image download (cap 24)<br/>🆕 virlo_media_manifest.yaml —<br/>image ↔ item join (views, captions, theme)"]
     end
 
-    subgraph ANALYZE["STAGE: analysis 🟢 — LLM (vision)"]
-        NA["N-A Trend & Visual Analyst — Sonnet 5<br/>IN: trimmed corpus (≤5 themes, ≤6 videos,<br/>≤4 slideshows ✅) + downloaded images<br/>OUT: analysis/viral_playbook.yaml<br/>never fails the run"]
+    subgraph RANK["STAGE: ranking 🟢 + 🆕 R1/R3"]
+        R1["deterministic composites + fit gate<br/>🆕 freshness window 14d (stale rows skip<br/>scoring, traced) · 🆕 quantile bands<br/>OUT: Scorecards, top-N per language"]
     end
 
-    subgraph RANKSPIN["STAGES: ranking + brand truth + spin 🟢"]
-        R1["ranking — deterministic composites,<br/>fit gate, dedupe/resurgence<br/>e4d8: 658 in → 116 pass → 3 generate<br/>🟠 R1/R3: freshness window + band calibration"]
-        B1["brand truth — brand_facts.yaml +<br/>claim snapshot (10 approved claims)"]
-        S1["spin — ICP/pain/offer mapping,<br/>distance bands (far ⇒ value-only)<br/>proven: adjacent + far both exercised"]
+    subgraph ANALYZE["STAGE: analysis 🆕 AFTER ranking — LLM (vision)"]
+        NA["N-A Trend & Visual Analyst — Sonnet 5<br/>🆕 only WINNING themes, deeper (10 vids/8 slides)<br/>🆕 images views-ordered + thumbnail quota,<br/>each labeled with its item metadata<br/>OUT: viral_playbook.yaml +<br/>🆕 analyzed_items (per-creative: summary,<br/>consists_of, post_kind, person, logos,<br/>style, text, environment) +<br/>🆕 visual_profile per theme (deterministic:<br/>rates, mixes, recommended_generation_mode)"]
     end
 
-    subgraph COPY["STAGE: copy 🟢 LLM"]
-        NC["N-C Copywriter — Sonnet 5, max_tokens 4000 ✅<br/>truncation detected via finish_reason,<br/>retry with doubled budget ✅<br/>carousel completeness check:<br/>6–10 slides + end_card, 1 retry ✅"]
-        GATE["claim gate 🟢 deterministic, UNCHANGED<br/>all texts incl. every slide + image prompts<br/>fail ⇒ repair loop (2 attempts) ⇒ held<br/>proven live: caught missing disclosure,<br/>repair attempt 2 passed"]
+    subgraph SPIN["STAGES: brand truth + spin 🟢 + 🆕 post_mix"]
+        B1["brand truth — brand_facts + claim snapshot"]
+        S1["spin — ICP/pain/offer, distance bands<br/>🆕 allocate_post_types(post_mix):<br/>value_only / playbook / promotional,<br/>promo never first"]
     end
 
-    subgraph MEDIA["STAGE: media 🟢"]
-        ND["N-D Image-Prompt Crafter — Sonnet 5, 6000 tok ✅<br/>prompt-hygiene rules ✅ (no font names as text,<br/>no contentless labels, exact text sans quotes)<br/>completeness validation ⇒ compose_prompt fallback ✅"]
-        KIE["Kie jobs API — Nano Banana 2 standard $0.04/img 🟢<br/>write-ahead ledger, per-slide idempotency,<br/>caps $3/run $6/day, DELTA spend events ✅"]
-        NE["N-E Vision-QA Gate — Sonnet 5 (vision)<br/>exact-match rubric ✅, 16 reserved calls ✅<br/>fail ⇒ 1 regeneration ⇒ held<br/>proven live: failed slide_03, regen passed"]
+    subgraph COPY["STAGE: copy 🟢 + 🆕 voice"]
+        NC["N-C Copywriter — Sonnet 5, temp 0.9 🆕<br/>founder first-person + 12 countable voice rules 🆕<br/>exemplars actually injected 🆕 · language pinned en 🆕<br/>value_only: zero brand grounding 🆕<br/>numbered-promise hard gate 🆕"]
+        GATE["claim gate 🟢 deterministic UNCHANGED<br/>fail ⇒ repair ×2 ⇒ held"]
+        NF["🆕 N-F Humanness Critic — Sonnet 5<br/>regex pre-filter ($0) → blind native-speaker<br/>editor rewrite, cross-asset repetition check<br/>rewrite re-enters claim gate;<br/>gate-fail ⇒ keep original"]
+    end
+
+    subgraph MEDIA["STAGE: media 🟢 + 🆕 dynamic modes"]
+        ND["N-D Prompt Crafter — Sonnet 5<br/>🆕 mode from visual_profile (8 modes:<br/>photoreal person UGC · lifestyle sticker ·<br/>aspirational scene · live branded app UI ·<br/>meme split · flat-lay · native caption ·<br/>designed card) — editorial NOT hardcoded<br/>🆕 two-section prompts (shared STYLE block<br/>per cluster + RENDER) · image_brief on all paths<br/>🆕 real-logo rule · relevance requirement ·<br/>28-word cap · archetype rotation"]
+        KIE["Kie — Nano Banana 2 $0.04/img 🟢<br/>write-ahead ledger, per-slide idempotency,<br/>caps $3/run $6/day, delta spend events<br/>🆕 pre-spend leak checks (font names,<br/>hex tokens, stray quotes — $0)"]
+        NE["N-E Art-Director QA — Sonnet 5 (vision) 🆕<br/>exact text + subject relevance + logo fidelity +<br/>composition + series consistency (vs cover img)<br/>mode-aware rubric · synthetic-person policy<br/>mismatches ⇒ never pass<br/>16 reserved calls · fail ⇒ 1 regen ⇒ held"]
     end
 
     subgraph OUT["STAGES: packaging + digest + summary 🟢"]
-        P1["run pack: digest.md, scorecards,<br/>spin rationale, media + provenance<br/>(FULL prompts, QA verdicts)"]
-        PS["process_summary.md EVERY run —<br/>9 sections + --summarize CLI"]
+        P1["pack: digest, scorecards, media +<br/>provenance (full prompts, QA verdicts 🆕)"]
+        PS["process_summary.md every run"]
     end
 
     V --> C1
     FREE --> C1
-    C1 --> NA
     C1 --> R1
+    R1 --> NA
     NA --> NC
     R1 --> S1
     B1 --> S1
     S1 --> NC
     NC --> GATE
-    GATE -->|pass| ND
+    GATE -->|pass| NF
     GATE -->|fail 2x| HELD1["held — awaiting operator"]
+    NF --> ND
     ND --> KIE
     KIE --> NE
     NE -->|pass| P1
@@ -67,134 +72,85 @@ flowchart TD
 
     style NA fill:#1d4ed8,color:#fff
     style NC fill:#1d4ed8,color:#fff
+    style NF fill:#7c3aed,color:#fff
     style ND fill:#1d4ed8,color:#fff
     style NE fill:#1d4ed8,color:#fff
 ```
 
-**Nothing publishes. Ever.** Postiz/Phase 6 stays outside this flow (drafts-only posture,
-counsel re-ask gate untouched).
+**Nothing publishes. Ever.** Postiz/Phase 6 stays outside this flow.
 
 ---
 
-## 2. Stage-by-stage: inputs → outputs (with e4d8 actuals)
+## 2. What changed in W8-10 and why (audit → fix traceability)
 
-| # | Stage | Inputs | Outputs (artifacts) | LLM? | e4d8 actual cost |
-|---|-------|--------|--------------------|------|------|
-| 1 | **collection** | Virlo monitor v2 sub-paths `/videos`, `/slideshows` (free, ≤6 pages each, 1 pass); theme analysis; 4 free collectors; trends digest OFF by default | SQLite signals; `virlo_corpus.yaml` (full captions, hooks, panel texts, tactics, why_it_works); `virlo_media/` top-K images; `virlo_extraction.yaml` | no | $0 |
-| 2 | **analysis** | trimmed virlo_corpus (≤5 themes / ≤6 videos / ≤4 slideshows / 300-char captions ✅) + ≤12 images | `analysis/viral_playbook.yaml` — per theme: hooks, formats, visual archetypes, tools shown, numbers, platform norms | **N-A** Sonnet 5 (vision) | $0.31 (was 70k-token prompt; trimmed ✅) |
-| 3 | **ranking** | stored signals, dedupe index, watch topics | Scorecards, top-N per language. e4d8: 658 → 116 fit-pass → 3 generate (all 3 were Virlo themes) | no | $0 |
-| 4 | **brand truth** | `config/brand_facts.yaml`, claim snapshot ≤30 days | BrandFacts panel; stale ⇒ copy refuses | no | $0 |
-| 5 | **spin** | Scorecard + BrandFacts | SpinResult: ICP, pain, offer, CTA class, mapping distance, rationale. Proven: HypeLead-adjacent AND value-only(far) both produced | no | $0 |
-| 6 | **copy** | viral playbook + `style_guide.yaml` + spin + brand facts + claim snapshot | headline, caption, per-slide carousel texts, image direction. Truncation-guarded, carousel-completeness-checked ✅ | **N-C** Sonnet 5 | $0.23 (10 calls) |
-| 7 | **claim gate** | all generated texts incl. slides + image prompts | verdict + failing spans; 2-attempt repair; fail ⇒ held. Proven live (disclosure catch → repair pass) | no | $0 |
-| 8 | **prompt craft** | gate-passed texts + archetype/register + palette + series tokens | full image prompt per image, validated complete ✅, else compose_prompt fallback | **N-D** Sonnet 5 | $0.05 (4 calls) |
-| 9 | **image generation** | crafted prompts; model registry route | PNGs via Kie Nano Banana 2 (`img-standard-nano-banana-pro`, 8 credits = **$0.04/img** live-verified); ledger row BEFORE submission; per-slide idempotency | image model | $0.44 (11 submissions, balance-reconciled exactly) |
-| 10 | **vision QA** | generated image + gate-passed exact text | exact-match verdict ✅; 1 retry then held; 16 reserved LLM calls guarantee coverage ✅ | **N-E** Sonnet 5 (vision) | $0.05 (4 of 11 imgs — starvation FIXED ✅) |
-| 11 | **packaging** | approved assets | `pack/`: digest, scorecards, `media/<asset>/slide_NN.png` + provenance (checksum, cost, full prompt, QA verdict) | no | $0 |
-| 12 | **process summary** | trace + resume_state + ledger + provenance | `process_summary.md` (9 sections); `--summarize <run_id>` | no | $0 |
+| Audit finding (run e4d8) | W8-10 fix |
+|---|---|
+| Style-transfer fidelity ~0% — winners 96% photoreal/92% sticker-text/71% real logos/50% people; we generated 100% editorial cards | analyzed_items + visual_profile + 8 generation modes + photographic_ugc register; mode chosen from the theme's winning distribution; editorial register no longer hardcoded |
+| All 6 person/talking-head thumbnails never reached N-A (hash-sorted, sliced) | virlo_media_manifest join; views-ordered selection; thumbnail quota; images labeled in prompt; analyst_max_images 24 |
+| Copywriter's logo request structurally dropped on carousel path | image_brief reaches all N-D paths; positive real-logo rule; QA logo-fidelity check |
+| Copy nativeness 3–4/10; "creators are reporting" ×5 was handed BY our own prompt | prompt rewritten (founder voice, 12 countable rules, exemplars injected, temp 0.9); N-F humanness critic with cross-asset check |
+| "Montserrat SemiBold"/"UII Label"/series token rendered into artwork | two-section prompts (STYLE never-render block); token metadata-only; deterministic pre-spend leak checks; QA banned-string auto-fail |
+| QA passed slides with defects listed in its own mismatches; 8/11 images unreviewed | mismatches ⇒ never pass; 16 reserved QA calls; art-director rubric (relevance/logos/composition/series) |
+| "6 prompts" cover shipped with 1 prompt | numbered-promise hard gate (held, never auto-ship) |
+| 566 stale news rows rescored; all bands "Low"; analysis analyzed 11 themes for 3 winners | freshness window 14d; quantile bands; ranking→analysis reorder (winning themes only, deeper) |
+| 4/4 posts brand-grounded (no reach engine) | generation.post_mix: value_only (zero brand grounding, handle+disclosure kept) / playbook / promotional, promo-never-first |
 
-**e4d8 total real cost: ≈ $1.06** ($0.62 LLM + $0.44 images) for 3 IG carousels + 1 LinkedIn
-post + 10 images — well under the $3/run cap. (The run's own summary showed $2.64 media —
-that was the cumulative-spend reporting bug, fixed ✅; balance moved exactly 88 credits.)
+## 3. The LLM nodes (OpenRouter → `anthropic/claude-sonnet-5`, keys in `.env`)
 
----
+| Node | Role | max_tokens | Notes |
+|------|------|-----------|-------|
+| **N-A** Trend & Visual Analyst (vision) | per-creative extraction (summary + consists_of + closed-vocab attributes) + theme playbook; runs AFTER ranking on winning themes only | 4000 | never fails the run; visual_profile computed deterministically in Python |
+| **N-C** Copywriter | founder-voice platform-native copy; post_type-branched (value_only/playbook/promotional) | 4000 | truncation-guarded; carousel + numbered-promise validation |
+| **N-F** Humanness Critic 🆕 | blind native-speaker editor; rewrite-not-score; sibling-asset repetition check | 2000 | rewrite re-enters claim gate; original kept on gate-fail; config `llm.humanness_critic_enabled` |
+| **N-D** Prompt Crafter | mode-driven image prompts (two-section STYLE/RENDER) | 6000 | mode from visual_profile.recommended_generation_mode; validation + compose_prompt fallback |
+| **N-E** Art-Director QA (vision) | exact text + relevance + logo fidelity + composition + series (cover as reference image); mode-aware; synthetic-person policy | 1000 | 16 reserved calls; deterministic $0 checks run first; fail ⇒ 1 regen ⇒ held |
 
-## 3. The LLM nodes (all via OpenRouter → `anthropic/claude-sonnet-5`, key in `.env`)
+Budget: `per_run_call_cap 60`, `per_run_usd_cap $2.00`, `qa_reserved_calls 16`.
+Truncation (`finish_reason=="length"`) is never silently accepted.
 
-| Node | Role | max_tokens ✅ | Output | Failure behavior |
-|------|------|------------|--------|------------------|
-| **N-A** Trend & Visual Analyst | see what's working in the niche this week | 4000 | `viral_playbook.yaml` | run continues with style_guide-only grounding; degrade traced |
-| **N-C** Copywriter | platform-native copy grounded in the playbook | 4000 | JSON: headline, caption, slides[], image_direction | truncation retry ×1 (doubled budget) → `LlmTruncatedError` degrade; parse-retry ×1; interactive-file fallback |
-| **N-D** Image-Prompt Crafter | the exact prompt Nano Banana 2 receives | 6000 | full prompt per image (persisted to provenance) | completeness validation: bad slide prompt degrades the carousel set; bad hero falls back to deterministic compose_prompt |
-| **N-E** Vision-QA Gate | compensating control for AI-rendered text | 1000 | {text_matches, mismatches[], archetype_ok} | fail ⇒ 1 regeneration ⇒ held (never auto-ships); draws from 16-call reserve non-QA nodes cannot consume |
+## 4. Config surface (what the operator can steer)
 
-Shared budget: `per_run_call_cap: 60`, `per_run_usd_cap: $2.00`, `qa_reserved_calls: 16` ✅.
-All calls traced (tokens, latency, OpenRouter-reported USD) into the `llm` wallet.
-`finish_reason=="length"` is detected before parsing — truncated output is never silently
-accepted ✅ (e4d8's slide_04 "built for…" cut-off can no longer reach the image model).
+| Key (theme yaml) | Effect |
+|---|---|
+| `generation.post_mix {value_only, playbook, promotional}` | per-run post-type counts; all-zero = off (current default until confirmation run) |
+| `ranking.ranking_freshness_days` (14) | stale candidates skip scoring |
+| `generation.llm.analyst_max_images` (24) | creatives shown to N-A |
+| `generation.llm.node_overrides` | per-node max_tokens/temperature (copywriter temp 0.9) |
+| `generation.llm.humanness_critic_enabled` (true) | N-F on/off |
+| `generation.media.aspect_ratio_by_destination` | linkedin 16:9 🆕, instagram_feed 4:5 |
+| `generation.media` caps | $3/run, 14 imgs, $6/day |
+| `config/style_guide.yaml` | registers (editorial/hype/**photographic_ugc** 🆕), archetypes (+4 🆕), voice/skeleton rules (one-ask CTA 🆕) |
 
----
-
-## 4. Grounding & config inputs (read every run)
-
-| File | What it feeds |
-|------|---------------|
-| `config/style_guide.yaml` | N-C + N-D: LinkedIn 7-beat / IG carousel / TikTok skeletons, 12 visual archetypes, 2 registers, hook ranking, CTA stack, reject-list. **This is the LinkedIn/IG grounding** — the Virlo corpus is TikTok-heavy by nature (see §7 R4) |
-| `config/brand_facts.yaml` | brand truth; W8-9 negatives: third-party logos/screenshots/people ALLOWED; no fake screenshots of OUR products; no client names; RAGus legacy-only |
-| `config/snapshots/claim_ledger_*.yaml` | the ONLY citable numbers (10 approved claims, ≤30 days) |
-| `config/model_registry.yaml` | nano-banana-2: 8 credits / **$0.04 per image** (live-verified); tier_ceiling standard |
-| `config/hard_excludes.yaml` | topics never touched |
-| `.env` (gitignored) | all API keys — replaces API_KEYS.txt (deleted) |
-| `assets/brand/` | HD/HypeLead logos + 7 post templates (prompt reference) |
-
-## 5. Per-run artifact map (where to look after a run)
+## 5. Per-run artifact map
 
 ```
 logs/runs/<run_id>/
-├── trace.jsonl / trace.md        every event, API call, gate verdict, spend
-├── process_summary.md            THE neat report — start here
-├── virlo_extraction.yaml         what Virlo returned vs what was used
-├── virlo_corpus.yaml             full rich corpus (untrimmed; N-A prompt uses a trimmed view)
-├── analysis/viral_playbook.yaml  N-A output
-├── copy_requests/ copy_responses/ full briefs + copy incl. per-slide
-├── resume_state.yaml             --resume re-entry point
-└── pack/
-    ├── digest.md                 2-minute outcome summary
-    └── media/<asset>/            hero.png / slide_NN.png + *.provenance.yaml
-                                     (route, cost, checksum, FULL prompt, QA verdict)
-logs/artifacts/raw/<run_id>/virlo_media/  downloaded thumbnails/panels (30-day retention,
-                                             analysis-only, never re-published)
+├── trace.jsonl / trace.md            every event, call, verdict, spend
+├── process_summary.md                THE report — start here
+├── virlo_corpus.yaml                 full rich corpus
+├── virlo_media_manifest.yaml         🆕 image ↔ item join
+├── analysis/viral_playbook.yaml      + 🆕 analyzed_items + visual_profile per theme
+├── copy_requests/ copy_responses/    briefs + copy (+ 🆕 critic rewrites traced)
+├── resume_state.yaml                 --resume re-entry
+└── pack/media/<asset>/               hero/slide_NN.png + provenance
+                                      (full prompt, mode 🆕, QA verdicts incl.
+                                       relevance/logos/composition/series 🆕)
+logs/artifacts/raw/<run_id>/virlo_media/   downloaded creatives (30-day retention,
+                                            analysis-only, never re-published)
 ```
 
 ## 6. Safety rails that survive every change (do not re-derive)
 
-- **Claim gate deterministic pass is untouched** — prices never stated, only ledger numbers citable, disclosure line `[AI-generated content]` mandatory, therapeutic/prohibited-outcome lexicon floor. Proven live in e4d8.
-- **Vision-QA (N-E) is mandatory** wherever the image model renders text; its 16-call reserve means it can never again be starved by upstream nodes.
-- **Money**: intent row BEFORE submission, resolve-by-query on restart, dual caps, per-slide idempotency, balance reconciliation. Proven at 11 submissions: billed exactly once each. Spend events are per-submission deltas; `sum(events) == ledger == balance delta` is test-enforced.
-- **Virlo**: engine is GET-only, never POSTs, never polls in a loop; reads are free.
-- **Third-party content**: fetched visuals are analysis input only — never re-published, never in packs; verbatim third-party text stays key+hash in traces.
-- **Never publishes**: Postiz untouched until Phase 6 (with its one-time counsel re-ask).
-- **Frozen eval sets** (`calibration/eval/`) are never read by the prompt author.
+- **Claim gate deterministic pass untouched** — prices never stated, only ledger numbers citable, disclosure line `[AI-generated content]` mandatory. N-F rewrites re-enter it.
+- **Person policy (W8-10)**: synthetic, non-identifiable people ARE allowed (incl. faces, photoreal); identifiable real individuals/celebrity likeness BANNED (QA fails on resemblance); NSFW banned; no fake screenshots of OUR products.
+- **Money**: intent row before submission, per-slide idempotency, dual caps, delta spend events (sum==ledger==balance, test-enforced), $0 deterministic checks before any spend.
+- **Virlo**: GET-only, never POSTs, never loop-polls; reads free; fetched visuals analysis-only, never re-published.
+- **Never publishes**: Postiz untouched until Phase 6 (one-time counsel re-ask there).
+- **Frozen eval sets** (`calibration/eval/`) never read by the prompt author.
+- **Flow-map artifact**: republished at the same URL on every flow amendment (PRD rule).
 
----
+## 7. Status
 
-## 7. Q6 re-audit verdict (2026-08-07, against run e4d8 evidence)
-
-**The backbone is structurally sound.** The chain Virlo rich corpus → N-A analysis →
-ranking/spin → N-C copy → claim gate → N-D prompt craft → Nano Banana 2 → N-E vision QA
-produced a step-change in quality over the pre-W8-9 pipeline, and every safety loop fired
-correctly under live conditions (gate repair, QA regeneration, per-slide billing). No
-rewiring of the graph is required. The e4d8 defects were all *parameter/validation* class,
-not *structure* class, and are fixed in `539e808`.
-
-Findings and recommendations, ranked:
-
-- **R1 🟠 Ranking freshness window.** 566 of 658 candidates were stale Google News rows
-  rescored from the store (0 fetched this run); none generated content — all 3 generates
-  were Virlo themes. Add a fetched-within-N-days filter (or hard decay) so ranking scores
-  fresh signal, not archaeology. Cheap, pure-deterministic change; also shrinks scorecard
-  noise in the pack.
-- **R2 🟠 Run analysis AFTER ranking.** N-A currently analyzes the whole corpus before
-  ranking picks 3 topics; nothing in ranking consumes the playbook. Reordering
-  collection → ranking → analysis(top-N themes only, deeper per theme) → copy cuts N-A's
-  prompt further and spends its token budget on the themes that actually ship. Zero
-  behavioral risk; requires moving one stage call.
-- **R3 🟠 Scorecard band calibration.** Every generated topic carried "Band: Low" even at
-  30× composite spread (0.0005–0.017); the absolute band thresholds predate Virlo-theme
-  candidates. Make bands quantile-based per run (or recalibrate thresholds) so the band
-  label carries information again. (Spin's own distance mapping is healthy — adjacent and
-  far both occurred.)
-- **R4 ✅-by-design, small polish.** Playbook `platform_norms` says "not observed in
-  corpus" for LinkedIn/IG because Virlo's corpus is TikTok-heavy — the style guide is the
-  intended LinkedIn/IG grounding. Polish: tell N-A to omit not-observed platforms instead
-  of emitting noise lines, and mark playbook norms explicitly as TikTok evidence.
-- **R5 🟠 deferred: parallel image submission.** e4d8's 12m09s wall clock is dominated by
-  serial Kie submit→poll cycles. Parallelizing would complicate the money discipline
-  (write-ahead ledger ordering) for little gain at a weekly cadence. Revisit only if runs
-  grow past ~30 images.
-- **R6 🟠 Confirmation re-run.** One cheap live run (~$1) after the fix round to confirm:
-  full-length LinkedIn copy (no truncation holds), 6–10-slide carousels with end cards,
-  100% QA coverage, delta spend reporting. Needs operator go-ahead (live spend).
-
-Post-campaign backlog (unchanged): Czech copy path, LLM judge halves for ranking fit,
-video pipeline, Postiz Phase 6.
+W8-10 built and committed (`f4b2943`), 515/515 offline tests green. Operator has
+authorized the live confirmation run (post_mix 1/1/1, ~$1.50–2.50) — next step, results
+will be appended to the run log and judged against the audit checklist.

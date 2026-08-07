@@ -237,10 +237,14 @@ generation:
   # here until the Phase-7 operator-gated live confirmation run explicitly
   # turns it on (plan: `docs/plans/.../recursive-stargazing-sunrise.md`
   # Phase 7, `{value_only: 1, playbook: 1, promotional: 1}`).
+  # W8-10 Phase 7: ENABLED for the operator-authorized live confirmation run
+  # (operator go 2026-08-07: "PROCEED WITH THE FULL TEST RUN AFTER EVERYTHING
+  # LANDS"). One value-only post (zero brand grounding), one playbook
+  # (lead-magnet comment-CTA), one promotional.
   post_mix:
-    value_only: 0
-    playbook: 0
-    promotional: 0
+    value_only: 1
+    playbook: 1
+    promotional: 1
 
   # Disabled: no key exists for this goal. Config-driven so a future key
   # drops in with no code change.
