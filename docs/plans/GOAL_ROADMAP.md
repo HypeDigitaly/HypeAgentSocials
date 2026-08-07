@@ -80,7 +80,20 @@ The goal's completion criterion is the **test run**, and the test run defines th
       (d) Claim gates on copy: deterministic passes (claim-shaped-string detection vs the
       10-row ledger + abstain rules) — the LLM judge halves stay pluggable.
       → tests, commit, **/compact**.
-- [ ] **M4 — Kie image generation, draft tier** (goal-scoped Phase 3).
+- [x] **M4 — Kie image generation, draft tier** (commit e93f050, 2026-08-07).
+      153/153 tests. Model strings VERIFIED vs docs.kie.ai (`google/nano-banana`
+      live-confirmed 2×; seedream corrected to `bytedance/seedream-v4-text-to-image`;
+      "nano-banana-pro" doesn't exist → `nano-banana-2`). Real-spend proof: 8 credits
+      ($0.04) total — one full round trip + one kill/resume with real paid work,
+      resolve-by-query adopted the job with ZERO createTask on restart, balance
+      10080→10072 (each submission billed exactly once). recordInfo returns
+      `state`/`resultJson`/`creditsConsumed`; `model` echoes request (non-authoritative,
+      §5.6 three-state rule governs). Credit balance: GET /api/v1/chat/credit.
+      Smoke `2026-08-07_30f1`: held copy → media plans only, $0, zero API calls.
+- [ ] **M4b — `--resume <run_id>` CLI** (prereq discovered for M5): re-enter an
+      existing run dir and continue copy→media→packaging, consuming copy_responses;
+      without it a same-day second full run hits cross-day dedupe suppression instead
+      of completing the held assets.
       **API surface (verified 2026-08-07 from docs.kie.ai/market/quickstart):** unified
       jobs API — `POST https://api.kie.ai/api/v1/jobs/createTask`, poll
       `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=...`, `Authorization: Bearer`;
