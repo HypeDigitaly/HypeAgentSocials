@@ -805,9 +805,15 @@ def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
     pack_media_dir.mkdir(parents=True, exist_ok=True)
 
     kie_client = media_gen.KieClient(fetcher=fetcher, api_key=api_key, trace=trace, registry=registry, stage="media")
+    # W8-9 Q4 N-E vision-QA reuses the SAME shared LlmClient the N-D prompt
+    # crafter above already built/cached on ``ctx.extra`` -- one per-run
+    # budget across analysis/copy/prompt-craft/vision-QA together, exactly
+    # the discipline ``_get_or_build_llm_client`` exists to enforce.
+    llm_client = _get_or_build_llm_client(ctx, trace, stage="media")
     generator = media_gen.MediaGenerator(
         store=ctx.store, trace=trace, registry=registry, media_config=media_cfg, kie_client=kie_client,
         theme=ctx.theme_name, run_id=ctx.run_id, run_date=ctx.run_date, pack_media_dir=pack_media_dir,
+        llm_client=llm_client,
     )
     result = generator.process(plans)
     ctx.extra["media_asset_statuses"] = result.statuses

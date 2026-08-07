@@ -184,6 +184,18 @@ ranking:
   evidence_floor:
     en: {min_candidates: 1, min_families: 1}
     cs: {min_candidates: 1, min_families: 1}
+generation:
+  media:
+    # W8-9 Q4: MediaConfig's own default ``route_by_class`` points at the
+    # standard-tier ``img-standard-nano-banana-pro`` route, which this
+    # fixture's minimal registry (``_write_model_registry_config`` below)
+    # does not register -- pin both classes back to the one draft route
+    # every existing pipeline test's price/behavior assertions assume.
+    # Every OTHER media/generation default (caps, aspect ratio, destinations,
+    # copy_provider) is left alone by only setting this one sub-key.
+    route_by_class:
+      hero: img-draft-nano-banana
+      slide: img-draft-nano-banana
 """,
         encoding="utf-8",
     )

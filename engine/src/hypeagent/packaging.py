@@ -136,7 +136,7 @@ def render_digest(
         )
         media_forecast = sum(
             (s.expected_cost_usd or 0.0) for s in media_asset_statuses
-            if getattr(s, "expected_cost_usd", None) and s.status not in ("generated",)
+            if getattr(s, "expected_cost_usd", None) and s.status not in ("generated", "held-qa-failed")
         )
         snapshot_note = f" (price snapshot {media_registry_price_snapshot_date})" if media_registry_price_snapshot_date else ""
         lines.append(f"| media — actual spend | ${media_spent:.4f}{snapshot_note} |")
@@ -250,16 +250,21 @@ def render_digest(
         lines.append("## Media status (per asset) — draft-tier images, images only, nothing publishes")
         lines.append("")
         if media_asset_statuses:
-            lines.append("| asset | route | cost | provenance | image | logo overlay |")
-            lines.append("|---|---|---|---|---|---|")
+            lines.append("| asset | slot | route | cost | provenance | QA | image | logo overlay |")
+            lines.append("|---|---|---|---|---|---|---|---|")
             for s in media_asset_statuses:
                 route = s.route_id or "—"
                 cost = f"${s.observed_cost_usd:.4f}" if s.observed_cost_usd else (
                     f"~${s.expected_cost_usd:.4f}" if s.expected_cost_usd else "$0.00"
                 )
                 provenance = s.delivered_route_state or "—"
+                qa = getattr(s, "qa_verdict", None) or "—"
                 image = s.image_path or "—"
-                lines.append(f"| {s.asset_id} ({s.status}) | {route} | {cost} | {provenance} | {image} | deferred to a later phase |")
+                slot = getattr(s, "slot", "hero")
+                lines.append(
+                    f"| {s.asset_id} ({s.status}) | {slot} | {route} | {cost} | {provenance} | {qa} | {image} | "
+                    "deferred to a later phase |"
+                )
         else:
             lines.append("_No media assets this run._")
         lines.append("")

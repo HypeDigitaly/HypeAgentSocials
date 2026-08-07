@@ -473,10 +473,28 @@ class MediaConfig:
     poll_interval_seconds: float = 7.0
     poll_timeout_seconds: float = 180.0
     resolution_window_days: int = 14  # bounded by the provider's 14-day deletion horizon (§8.13)
-    aspect_ratio: str = "1:1"
+    aspect_ratio: str = "1:1"  # legacy fallback, used when a destination has no entry in aspect_ratio_by_destination
     output_format: str = "png"
     key_path: str = ""  # empty -> caller falls back to secrets_dir/kie.key, matching virlo's SourceConfig.key_path pattern
     unexplained_spend_threshold: float = 0.20  # relative divergence that trips the circuit breaker
+    # W8-9 Q4: which registered route (config/model_registry.yaml route_id)
+    # generates each image class this run -- "hero" (single-image
+    # destinations) and "slide" (carousel destinations). Both default to the
+    # standard-tier Nano Banana 2 route; draft routes stay registered for
+    # cheap iteration but are never auto-selected unless a theme explicitly
+    # points a class at one. Still subject to the registry's own
+    # ``tier_ceiling`` gate at submission time regardless of what a theme sets.
+    route_by_class: dict[str, str] = field(
+        default_factory=lambda: {
+            "hero": "img-standard-nano-banana-pro",
+            "slide": "img-standard-nano-banana-pro",
+        }
+    )
+    # Per-destination aspect ratio -- falls back to ``aspect_ratio`` above for
+    # any destination not named here.
+    aspect_ratio_by_destination: dict[str, str] = field(
+        default_factory=lambda: {"linkedin": "1:1", "instagram_feed": "4:5"}
+    )
 
 
 @dataclass(frozen=True)
@@ -521,6 +539,9 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         max_tokens=int(oai_block.get("max_tokens", 400)),
     )
     media_block = block.get("media") or {}
+    _media_defaults = MediaConfig()
+    route_by_class_raw = media_block.get("route_by_class") or {}
+    aspect_by_dest_raw = media_block.get("aspect_ratio_by_destination") or {}
     media = MediaConfig(
         dry_run=bool(media_block.get("dry_run", False)),
         per_run_usd_cap=float(media_block.get("per_run_usd_cap", 0.20)),
@@ -533,6 +554,11 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         output_format=str(media_block.get("output_format", "png")),
         key_path=str(media_block.get("key_path", "")),
         unexplained_spend_threshold=float(media_block.get("unexplained_spend_threshold", 0.20)),
+        route_by_class={**_media_defaults.route_by_class, **{str(k): str(v) for k, v in route_by_class_raw.items()}},
+        aspect_ratio_by_destination={
+            **_media_defaults.aspect_ratio_by_destination,
+            **{str(k): str(v) for k, v in aspect_by_dest_raw.items()},
+        },
     )
 
     llm_block = block.get("llm") or {}

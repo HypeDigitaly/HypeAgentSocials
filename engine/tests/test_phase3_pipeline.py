@@ -188,7 +188,7 @@ class TestGatedPassGeneratesRealImage:
         assert "media — actual spend" in digest_text.lower()
         assert "price snapshot" in digest_text.lower()
 
-        provenance_path = pack_dir / "media" / f"{gated.cluster_key}_{gated.destination}.provenance.yaml"
+        provenance_path = pack_dir / "media" / f"{gated.cluster_key}_{gated.destination}" / "hero.provenance.yaml"
         assert provenance_path.exists()
         doc = yaml.safe_load(provenance_path.read_text(encoding="utf-8"))
         assert doc["delivered_route_state"] in (

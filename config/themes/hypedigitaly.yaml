@@ -268,21 +268,36 @@ generation:
     analyst_max_images: 12
     node_overrides: {}
 
-  # M4 (GOAL_ROADMAP.md) — Kie.ai draft-tier image generation. Both caps
-  # are checked at every submission (§8.11); whichever trips first stops
-  # that submission, and count-capped/budget-capped are distinct statuses.
-  # dry_run stays false here deliberately: the goal's finish line is a real
-  # (bounded) spend test, and this milestone's own real-submission
-  # verification requires it off. A theme wanting a zero-spend rehearsal
-  # sets dry_run: true, which still produces the full plan and forecast.
+  # M4/W8-9 Q4 (GOAL_ROADMAP.md) — Kie.ai standard-tier (Nano Banana 2) image
+  # generation, single hero images AND per-slide carousels. Both caps are
+  # checked at every submission (§8.11); whichever trips first stops that
+  # submission, and count-capped/budget-capped are distinct statuses --
+  # hitting a cap mid-carousel blocks only the remaining slides, traced,
+  # never silently dropped. dry_run stays false here deliberately: the
+  # goal's finish line is a real (bounded) spend test. A theme wanting a
+  # zero-spend rehearsal sets dry_run: true, which still produces the full
+  # plan and forecast.
   media:
     dry_run: false
-    per_run_usd_cap: 0.20
-    per_run_count_cap: 4
-    per_day_usd_cap: 0.40
+    # W8-9 Q4: raised for the goal's finish-line test run -- 1 LinkedIn hero
+    # + 1 Instagram carousel (~6-10 slides) at the standard-tier Nano Banana
+    # 2 price point fits comfortably inside these; still small enough that a
+    # misconfiguration cannot run away.
+    per_run_usd_cap: 3.00
+    per_run_count_cap: 14
+    per_day_usd_cap: 6.00
     poll_interval_seconds: 7
     poll_timeout_seconds: 180
     resolution_window_days: 14
-    aspect_ratio: "1:1"
+    aspect_ratio: "1:1"  # legacy fallback for any destination not named below
+    aspect_ratio_by_destination:
+      linkedin: "1:1"
+      instagram_feed: "4:5"
+    # Both classes default to the standard-tier Nano Banana 2 route; the
+    # draft routes above stay registered for cheap iteration but are never
+    # auto-selected unless pointed at explicitly.
+    route_by_class:
+      hero: img-standard-nano-banana-pro
+      slide: img-standard-nano-banana-pro
     output_format: "png"
     # key_path left empty -> falls back to secrets/kie.key (repo-root relative)

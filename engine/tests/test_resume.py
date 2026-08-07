@@ -222,7 +222,8 @@ class TestResumeConsumesResponse:
         assert "generated" in digest_text
         assert "media — actual spend" in digest_text.lower()
 
-        provenance_path = run_dir / "pack" / "media" / f"{held.cluster_key}_{held.destination}.provenance.yaml"
+        # W8-9 Q4 pack layout: one folder per asset, ``hero.provenance.yaml`` inside it.
+        provenance_path = run_dir / "pack" / "media" / f"{held.cluster_key}_{held.destination}" / "hero.provenance.yaml"
         assert provenance_path.exists()
 
         # The key and the provider's result URL never reach the trace.
@@ -323,8 +324,16 @@ class TestResumeMediaCapsCombineAcrossInvocations:
     def test_day_cap_spent_in_original_invocation_blocks_a_new_asset_on_resume(self, tmp_path):
         _write_config(tmp_path)
         theme_yaml = tmp_path / "config" / "themes" / "hypedigitaly.yaml"
+        # NOTE: this REPLACES (YAML duplicate-key semantics: last one wins)
+        # ``_write_config``'s own trailing ``generation:`` block -- its
+        # ``route_by_class`` pin has to be repeated here too, or this
+        # override would silently fall back to MediaConfig's own default
+        # (the unregistered standard-tier route this fixture's minimal
+        # registry does not carry).
         theme_yaml.write_text(
-            theme_yaml.read_text(encoding="utf-8") + "\ngeneration:\n  media:\n    per_day_usd_cap: 0.02\n",
+            theme_yaml.read_text(encoding="utf-8")
+            + "\ngeneration:\n  media:\n    per_day_usd_cap: 0.02\n    route_by_class:\n"
+            "      hero: img-draft-nano-banana\n      slide: img-draft-nano-banana\n",
             encoding="utf-8",
         )
 

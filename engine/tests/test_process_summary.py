@@ -173,7 +173,9 @@ class TestProcessSummaryCopyAndMediaFidelity:
         # Own-authored image prompt shown in full, exactly as generated (no
         # "reconstructed" fallback needed — this run persists prompt_full).
         assert "A calm, people-free office scene, no product depiction." in summary_text
-        assert "no people" in summary_text
+        # W8-9 Q4 constraint set (compose_prompt's fallback path) — the old
+        # "no people"/"no text"/"no logos" set is gone entirely.
+        assert "no identifiable real individuals or celebrity likenesses" in summary_text
         assert "reconstructed from the copy response" not in summary_text
         # Secrets and provider URLs never leak into the summary.
         assert "kie_test_secret_value" not in summary_text
@@ -342,3 +344,116 @@ class TestSummarizeCli:
         assert "no copy requests were written this run" in text.lower()
         assert "no media assets were generated" in text.lower()
         assert "no external api calls" in text.lower()
+
+
+class TestViralPlaybookAndMediaPromptsSections:
+    """W8-9 Q4: two new process_summary sections -- the N-A viral playbook
+    and N-D's full crafted prompts (hero + every carousel slide), read back
+    from their own persisted YAML files, independent of whether media was
+    ever actually submitted this run."""
+
+    def test_viral_playbook_and_media_prompts_render_in_full(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        _write_minimal_config(tmp_path)
+
+        run_id = "2026-08-10_playbook1"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        (run_dir / "analysis").mkdir(parents=True)
+        (run_dir / "analysis" / "viral_playbook.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "version": 1, "skipped": False, "skip_reason": None, "degraded": False, "degrade_reason": None,
+                    "themes": [
+                        {
+                            "theme": "AI agents", "winning_hooks": ["pattern interrupt hook"],
+                            "formats": ["talking head"], "visual_archetypes_seen": ["editorial"],
+                            "tools_shown": ["n8n"], "numbers_used": ["10x"],
+                            "platform_norms": {"linkedin": "text-heavy carousel"},
+                        }
+                    ],
+                    "global": {
+                        "viral_tactics_digest": ["open on a number"], "connecting_thread": "AI replacing manual work",
+                        "do_not_do": ["never claim specific ROI numbers"],
+                    },
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "media_prompts.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "version": 1,
+                    "assets": {
+                        "ck1_instagram_feed": {
+                            "asset_id": "ck1_instagram_feed", "unavailable": False, "unavailable_reason": None,
+                            "gate_blocked": False, "gate_failing_spans": [], "archetype": "editorial", "register": "editorial",
+                            "images": [
+                                {"slot": "slide_01", "prompt": "Slide one exact crafted prompt text."},
+                                {"slot": "slide_02", "prompt": "Slide two exact crafted prompt text."},
+                            ],
+                        }
+                    },
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        trace_lines = [
+            {
+                "ts": "2026-08-10T00:00:00.000+00:00", "run_id": run_id, "seq": 1, "stage": "run",
+                "event": "run_start",
+                "detail": {"mode": "interactive", "theme": "hypedigitaly", "config_fingerprint": None, "engine_version": "0.0.1", "caps_in_force": {}},
+            },
+            {
+                "ts": "2026-08-10T00:00:05.000+00:00", "run_id": run_id, "seq": 2, "stage": "run",
+                "event": "run_end", "detail": {"exit_class": "success", "totals": {}},
+            },
+        ]
+        (run_dir / "trace.jsonl").write_text(
+            "\n".join(json.dumps(line) for line in trace_lines) + "\n", encoding="utf-8"
+        )
+
+        exit_code = main_module.main(["--summarize", run_id])
+        assert exit_code == 0
+        text = (run_dir / process_summary.PROCESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+
+        assert "## Viral playbook (N-A)" in text
+        assert "winning hooks: pattern interrupt hook" in text
+        assert "open on a number" in text
+        assert "AI replacing manual work" in text
+        assert "never claim specific ROI numbers" in text
+
+        assert "## Media prompts (N-D)" in text
+        assert "ck1_instagram_feed" in text
+        assert "Slide one exact crafted prompt text." in text
+        assert "Slide two exact crafted prompt text." in text
+        assert "archetype: editorial; register: editorial" in text
+
+    def test_both_sections_degrade_gracefully_when_files_absent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        _write_minimal_config(tmp_path)
+
+        run_id = "2020-01-01_noplaybook"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        trace_lines = [
+            {
+                "ts": "2020-01-01T00:00:00.000+00:00", "run_id": run_id, "seq": 1, "stage": "run",
+                "event": "run_start",
+                "detail": {"mode": "interactive", "theme": "hypedigitaly", "config_fingerprint": None, "engine_version": "0.0.1", "caps_in_force": {}},
+            },
+            {
+                "ts": "2020-01-01T00:00:01.000+00:00", "run_id": run_id, "seq": 2, "stage": "run",
+                "event": "run_end", "detail": {"exit_class": "success", "totals": {}},
+            },
+        ]
+        (run_dir / "trace.jsonl").write_text(
+            "\n".join(json.dumps(line) for line in trace_lines) + "\n", encoding="utf-8"
+        )
+
+        exit_code = main_module.main(["--summarize", run_id])
+        assert exit_code == 0
+        text = (run_dir / process_summary.PROCESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+        assert "N-A did not run" in text
+        assert "N-D did not run" in text

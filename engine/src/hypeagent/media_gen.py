@@ -1,10 +1,12 @@
-"""Kie.ai draft-tier IMAGE generation (GOAL_ROADMAP.md M4; ARCHITECTURE_PLAN.md
+"""Kie.ai IMAGE generation (GOAL_ROADMAP.md M4/W8-9 Q4; ARCHITECTURE_PLAN.md
 §4.6-§4.7, §5.2-§5.7, §8.5, §8.11, §8.13).
 
-Scope, exactly as the goal bounds it: **images only, draft tier only,
-drafts only** -- nothing publishes, no video, no voice, no FFmpeg
-composition/overlay (the pack carries the raw generated image plus its
-brief; logo overlay is a later phase).
+Scope: **images only** -- nothing publishes, no video, no voice, no FFmpeg
+composition/overlay (the pack carries the raw generated image(s) plus their
+briefs; logo overlay is a later phase). W8-9 Q4 raises the tier ceiling to
+``standard`` (real, paid, standard-tier Nano Banana 2 generations for the
+goal's finish-line test run) and wires per-slide carousel submission
+alongside the single hero-image path.
 
 Three things this module makes true by construction, not by discipline:
 
@@ -41,6 +43,14 @@ one-trigger degrade posture):
 - Balance-delta reconciliation runs once per resolved submission this run
   (not continuously); good enough to trip the circuit breaker mid-pack
   and to halt further submissions, which is the behaviour §8.13 requires.
+- **N-E Vision-QA (W8-9 Q4)** runs only in the plan-aware fresh-submission
+  path (``_submit_new`` -> ``_poll_to_resolution`` -> ``_complete_success``),
+  where the crafted prompt's expected on-image text and archetype/register
+  are known. A row adopted by ``resolve_pending``'s phase-0 pass (a prior
+  process crashed after submitting but before this process ever built a
+  plan) has no such context available and is provenance-recorded as
+  ``qa: skipped-phase0-adoption`` rather than retroactively re-derived --
+  named here rather than silently skipped.
 """
 
 from __future__ import annotations
@@ -57,6 +67,7 @@ import yaml
 
 from hypeagent.collectors.base import FetchError, Fetcher
 from hypeagent.config_load import ConfigError, MediaConfig, load_yaml_config
+from hypeagent.llm import LlmClient, LlmError, guess_image_mime, image_content_part, text_content_part
 from hypeagent.store import MediaIntentAlreadyExists, MediaIntentRow, Store
 from hypeagent.trace import TraceWriter
 
@@ -73,6 +84,13 @@ from hypeagent.trace import TraceWriter
 PROMPT_PATTERN_VERSION = 2
 ATTEMPT_MAX = 2
 
+# W8-9 Q4: draft < standard, the only two tiers this registry names. Route
+# selection checks ``TIER_ORDER[route.tier] <= TIER_ORDER[registry.tier_ceiling]``
+# instead of the old two literal ``== "draft"`` hard-raises -- any route
+# above the configured ceiling refuses with the same MediaGenerationError
+# policy-stop class, regardless of which class (hero/slide) picked it.
+TIER_ORDER = {"draft": 0, "standard": 1}
+
 CREATE_TASK_ALLOWED_KEYS = {"model", "input_keys", "prompt_sha256", "prompt_len", "output_format", "aspect_ratio"}
 RECORD_INFO_ALLOWED_KEYS = {"taskId"}
 RESPONSE_ALLOWED_KEYS = {
@@ -80,16 +98,15 @@ RESPONSE_ALLOWED_KEYS = {
     "progress", "creditsConsumed", "result_url_count",
 }
 
-# Injected, non-configurable prompt constraints (R2-M18 people-free default;
-# Policy A no-product-depiction; this milestone additionally forbids ALL
-# rendered text/lettering, because the claim gate's surface must stay
-# closed -- the copy headline is overlay-for-later, never burned into the
-# image, §14.3/§14.6).
+# Injected, non-configurable prompt constraints -- W8-9 Q4 replaces the old
+# R2-M18/no-text/no-logo/Policy-A set entirely (not additively): text, logos
+# of discussed third-party tools, generic people, and generic software UI
+# are now ALLOWED. Only these three survive, because they are the ones this
+# goal's operator actually cares about avoiding:
 _NEGATIVE_CONSTRAINTS = (
-    "no people, no human figures, no faces, no hands; "
-    "no text, no lettering, no words, no captions, no typography of any kind; "
-    "no logos, no brand marks; "
-    "no product screenshots, no app UI, no dashboards, no software interfaces"
+    "no identifiable real individuals or celebrity likenesses; "
+    "no NSFW or shocking content; "
+    "nothing presented as a screenshot of HypeDigitaly's or HypeLead's own product UI"
 )
 
 
@@ -136,6 +153,24 @@ class ModelRegistry:
     @property
     def fallback_draft_route(self) -> ModelRoute:
         return self.routes[self.fallback_draft_route_id]
+
+    def resolve_route(self, route_id: str) -> ModelRoute:
+        """Look up a route by id and enforce the tier-order policy-stop
+        (W8-9 Q4): any route whose tier ranks above ``tier_ceiling`` in
+        ``TIER_ORDER`` refuses here, replacing the two old literal
+        ``== "draft"`` hard-raises with a genuine order comparison that
+        works for any route/class combination, not just the single
+        hard-coded draft route this used to be."""
+        if route_id not in self.routes:
+            raise MediaGenerationError(f"route_by_class names {route_id!r}, which is not a registered route")
+        route = self.routes[route_id]
+        route_rank = TIER_ORDER.get(route.tier)
+        ceiling_rank = TIER_ORDER.get(self.tier_ceiling)
+        if route_rank is None or ceiling_rank is None or route_rank > ceiling_rank:
+            raise MediaGenerationError(
+                f"route {route.route_id!r} tier {route.tier!r} exceeds tier_ceiling {self.tier_ceiling!r} — policy-stop"
+            )
+        return route
 
 
 def load_model_registry(path: Path) -> ModelRegistry:
@@ -184,16 +219,19 @@ def load_model_registry(path: Path) -> ModelRegistry:
 # ---------------------------------------------------------------------------
 
 
-def compose_prompt(image_brief: str, registry: ModelRegistry) -> str:
+def compose_prompt(image_brief: str, registry: ModelRegistry) -> str:  # noqa: ARG001 - registry kept for call-site stability
     """Compose the final image prompt from a copy asset's ``image_brief``
-    plus the injected, non-configurable constraints (§5.3 routing contract's
-    negative-prompt layer; people-free default R2-M18; Policy A). The
-    brief's headline is never included here -- it is overlay-for-later, not
-    part of the image (GOAL_ROADMAP.md M4 scope note)."""
-    constraints = [_NEGATIVE_CONSTRAINTS]
-    if not registry.people_free_composition:  # pragma: no cover - v1 default is always True
-        constraints = [c for c in constraints if "no people" not in c]
-    return f"{image_brief.strip()} Constraints: {'; '.join(constraints)}."
+    plus the injected, non-configurable W8-9 Q4 constraint set (§5.3 routing
+    contract's negative-prompt layer). This is the fallback path only --
+    used when no N-D-crafted prompt is available for this asset; a crafted
+    prompt carries its own guardrails and is never run through here (no
+    double-appending, module docstring).
+
+    ``registry`` is accepted but no longer consulted for anything (W8-9 Q4
+    deletes the old ``people_free_composition`` substring-filter mechanism
+    outright -- it does not exist here to be re-triggered); the parameter
+    stays so existing call sites do not need to change shape."""
+    return f"{image_brief.strip()} Constraints: {_NEGATIVE_CONSTRAINTS}."
 
 
 def prompt_sha256(prompt: str) -> str:
@@ -547,46 +585,109 @@ def check_caps(
 
 @dataclass
 class MediaAssetPlan:
+    """One image to (plan to) generate. W8-9 Q4: a gated-pass carousel copy
+    asset now expands into one plan PER SLIDE (``asset_class="slide"``,
+    ``slot="slide_01"``, ...) instead of the single representative plan
+    every copy asset got before this milestone; a single-image destination
+    (or any asset without a usable crafted slide set) still gets exactly one
+    ``asset_class="hero"``, ``slot="hero"`` plan, unchanged in spirit from
+    before."""
+
     asset_id: str
     cluster_key: str
     destination: str
     language: str
     copy_status: str
-    image_brief: str | None
-    # W8-9 Q3c: an N-D-crafted, gate-checked hero prompt, when one is
-    # available and usable -- ``None`` falls back to
-    # ``compose_prompt(image_brief, registry)`` exactly as before this
-    # milestone (degrade path: crafter unavailable/gate-blocked/disabled).
-    crafted_hero_prompt: str | None = None
+    asset_class: str = "hero"  # "hero" | "slide"
+    slot: str = "hero"  # "hero" | "slide_01" | "slide_02" | ...
+    image_brief: str | None = None
+    # W8-9 Q3c/Q4: an N-D-crafted, gate-checked prompt for this exact slot,
+    # when one is available and usable -- ``None`` falls back to
+    # ``compose_prompt(image_brief, registry)`` (hero-class plans only;
+    # there is no deterministic fallback composer for a carousel slide, so
+    # a slide plan with no crafted prompt simply is not emitted, see
+    # ``plan_media_assets``).
+    crafted_prompt: str | None = None
+    # W8-9 Q4 N-E vision-QA expectations, carried from the crafter's own
+    # archetype/register pick and the copy asset's own text -- ``None``
+    # whenever there is nothing crafted to verify (fallback/compose_prompt
+    # path), which is this plan's own signal to skip QA rather than call an
+    # LLM to check a constraint that was never asked for.
+    qa_expected_text: str | None = None
+    qa_archetype: str | None = None
+    qa_register: str | None = None
+
+    @property
+    def asset_slot(self) -> str:
+        """The media-intent ledger identity's ``asset_slot`` component
+        (§8.5) -- exactly ``destination`` for a hero (unchanged from before
+        this milestone, so existing hero ledger rows keep resolving), or
+        ``"<destination>:<slot>"`` for a carousel slide (new, additive)."""
+        return self.destination if self.asset_class == "hero" else f"{self.destination}:{self.slot}"
+
+
+def _slide_text(slide: dict[str, str]) -> str:
+    title = str(slide.get("title") or "").strip()
+    body = str(slide.get("body") or "").strip()
+    return " — ".join(part for part in (title, body) if part)
 
 
 def plan_media_assets(
     copy_asset_statuses: list[Any], *, language: str = "en", crafted_prompts: dict[str, Any] | None = None
 ) -> list[MediaAssetPlan]:
-    """Build one media plan entry per copy asset (§4.6: "plan-only is
-    always produced"). ``copy_asset_statuses`` is a list of
+    """Build media plan entries per copy asset (§4.6: "plan-only is always
+    produced"). ``copy_asset_statuses`` is a list of
     ``copy_gen.AssetCopyStatus`` -- typed as ``Any`` here to avoid a
     circular import; only the attributes read below are used.
 
-    ``crafted_prompts`` (W8-9 Q3c) maps ``asset_id`` -> a
+    ``crafted_prompts`` (W8-9 Q3c/Q4) maps ``asset_id`` -> a
     ``promptcraft.CraftedPromptSet`` -- typed ``Any`` for the same
-    circular-import reason; only ``.hero_prompt()`` is called."""
+    circular-import reason. A usable set carrying one or more
+    ``slide_NN``-slotted images expands into one plan per slide (W8-9 Q4);
+    otherwise its ``.hero_prompt()`` (or ``None``) drives a single hero plan,
+    exactly as before this milestone."""
     crafted_prompts = crafted_prompts or {}
     plans: list[MediaAssetPlan] = []
     for status in copy_asset_statuses:
-        crafted = crafted_prompts.get(status.asset_id)
-        hero_prompt = crafted.hero_prompt() if crafted is not None else None
-        plans.append(
-            MediaAssetPlan(
-                asset_id=status.asset_id,
-                cluster_key=status.cluster_key,
-                destination=status.destination,
-                language=language,
-                copy_status=status.status,
-                image_brief=status.image_brief if status.status == "gated-pass" else None,
-                crafted_hero_prompt=hero_prompt if status.status == "gated-pass" else None,
+        if status.status != "gated-pass":
+            plans.append(
+                MediaAssetPlan(
+                    asset_id=status.asset_id, cluster_key=status.cluster_key, destination=status.destination,
+                    language=language, copy_status=status.status,
+                )
             )
-        )
+            continue
+
+        crafted = crafted_prompts.get(status.asset_id)
+        usable = crafted is not None and crafted.usable()
+        slide_images = [img for img in (crafted.images if usable else []) if img.slot.startswith("slide")]
+        slides_by_number = {i + 1: s for i, s in enumerate(status.slides or [])}
+
+        if slide_images:
+            for index, image in enumerate(slide_images, start=1):
+                slide = slides_by_number.get(index, {})
+                plans.append(
+                    MediaAssetPlan(
+                        asset_id=status.asset_id, cluster_key=status.cluster_key, destination=status.destination,
+                        language=language, copy_status=status.status, asset_class="slide", slot=image.slot,
+                        image_brief=status.image_brief, crafted_prompt=image.prompt,
+                        qa_expected_text=_slide_text(slide) or None,
+                        qa_archetype=crafted.archetype if crafted is not None else None,
+                        qa_register=crafted.register if crafted is not None else None,
+                    )
+                )
+        else:
+            hero_prompt = crafted.hero_prompt() if crafted is not None else None
+            plans.append(
+                MediaAssetPlan(
+                    asset_id=status.asset_id, cluster_key=status.cluster_key, destination=status.destination,
+                    language=language, copy_status=status.status, asset_class="hero", slot="hero",
+                    image_brief=status.image_brief, crafted_prompt=hero_prompt,
+                    qa_expected_text=(status.headline or None) if hero_prompt else None,
+                    qa_archetype=crafted.archetype if (crafted is not None and hero_prompt) else None,
+                    qa_register=crafted.register if (crafted is not None and hero_prompt) else None,
+                )
+            )
     return plans
 
 
@@ -596,6 +697,7 @@ class MediaAssetStatus:
     cluster_key: str
     destination: str
     status: str
+    slot: str = "hero"
     route_id: str | None = None
     model_string: str | None = None
     expected_cost_usd: float | None = None
@@ -604,6 +706,7 @@ class MediaAssetStatus:
     image_path: str | None = None
     task_id: str | None = None
     reason: str | None = None
+    qa_verdict: str | None = None
 
 
 @dataclass
@@ -623,6 +726,127 @@ class MediaStageResult:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _RunAccounting:
+    """Mutable per-``process()``-call accounting, shared by every attempt
+    (including a QA-triggered attempt 2) for every plan this call. Exists
+    only so :meth:`MediaGenerator._submit_or_resolve` can be one function
+    called for BOTH attempt numbers, instead of duplicating the cap-check /
+    spend-accounting / circuit-breaker block that used to live inline in
+    ``process()`` once per plan."""
+
+    spent_usd_run: float = 0.0
+    count_run: int = 0
+    ledger_recorded_usd: float = 0.0
+    balance_fetched: bool = False
+    circuit_tripped: bool = False
+
+
+def _parse_asset_slot(asset_slot: str) -> tuple[str, str]:
+    """Inverse of :meth:`MediaAssetPlan.asset_slot`: recover
+    ``(destination, slot)`` from the ledger identity's own ``asset_slot``
+    column. Used by the phase-0 path, which resolves a row with no
+    ``MediaAssetPlan`` in hand at all -- the encoding has to be
+    self-describing from the DB alone."""
+    if ":" in asset_slot:
+        destination, slot = asset_slot.split(":", 1)
+        return destination, slot
+    return asset_slot, "hero"
+
+
+# ---------------------------------------------------------------------------
+# N-E Vision-QA gate (W8-9 Q4).
+# ---------------------------------------------------------------------------
+
+QA_SYSTEM_PROMPT = (
+    "You are the Vision-QA gate (N-E) for HypeDigitaly's AI-agency social content pipeline "
+    "(FLOW_MAP.md's post-generation QA node). You are shown one generated image plus the exact "
+    "text that was supposed to render on it, verbatim, and the visual archetype/register it was "
+    "meant to match. Judge strictly but fairly: minor glyph-rendering artifacts are fine, but the "
+    "actual words and any numbers must be present and legible, and the composition must plausibly "
+    "match the named archetype/register in mood and style. Respond with ONLY the JSON schema given."
+)
+
+
+@dataclass
+class VisionQaResult:
+    status: str  # "pass" | "fail" | "skipped"
+    text_matches: bool | None = None
+    archetype_ok: bool | None = None
+    mismatches: list[str] = field(default_factory=list)
+    notes: str | None = None
+    skip_reason: str | None = None
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "text_matches": self.text_matches,
+            "archetype_ok": self.archetype_ok,
+            "mismatches": self.mismatches,
+            "notes": self.notes,
+            "skip_reason": self.skip_reason,
+        }
+
+
+def run_vision_qa(
+    *,
+    llm_client: LlmClient | None,
+    image_bytes: bytes,
+    mime: str,
+    expected_text: str | None,
+    archetype: str | None,
+    register: str | None,
+    node_name: str = "vision_qa",
+    purpose: str = "",
+    trace: TraceWriter | None = None,
+    stage: str = "media",
+    asset_id: str = "",
+    regeneration_counter: int | None = None,
+) -> VisionQaResult:
+    """N-E: one vision-QA call per downloaded image. Never raises -- an
+    unavailable/disabled LLM, an exhausted per-run LLM budget, a call
+    failure, or simply nothing to verify (no crafted on-image text for this
+    plan) all degrade to ``status="skipped"`` with the reason named
+    (provenance's ``qa: skipped-<reason>``), which is explicitly NOT a QA
+    failure and never triggers a regeneration."""
+    if not expected_text:
+        return VisionQaResult(status="skipped", skip_reason="no crafted on-image text to verify for this asset")
+    if llm_client is None:
+        return VisionQaResult(status="skipped", skip_reason="LLM disabled or unavailable for this run")
+    calls_remaining, usd_remaining = llm_client.budget_remaining()
+    if calls_remaining <= 0 or usd_remaining <= 0:
+        return VisionQaResult(status="skipped", skip_reason="LLM budget exhausted for this run")
+
+    schema_hint = 'Schema: {"text_matches": bool, "archetype_ok": bool, "mismatches": [string], "notes": string}'
+    user_parts = [
+        image_content_part(image_bytes, mime=mime),
+        text_content_part(
+            f"Exact text that must appear on this image: {expected_text!r}\n"
+            f"Intended visual archetype: {archetype!r}\nIntended register: {register!r}"
+        ),
+    ]
+    try:
+        data = llm_client.call_json(
+            node_name, system=QA_SYSTEM_PROMPT, user_parts=user_parts, schema_hint=schema_hint, purpose=purpose,
+        )
+    except LlmError as exc:
+        return VisionQaResult(status="skipped", skip_reason=f"{type(exc).__name__}: {exc}")
+
+    text_matches = bool(data.get("text_matches"))
+    archetype_ok = bool(data.get("archetype_ok"))
+    mismatches = [str(m) for m in (data.get("mismatches") or [])]
+    notes = str(data.get("notes") or "") or None
+    verdict = "pass" if (text_matches and archetype_ok) else "fail"
+    if trace is not None:
+        trace.gate_verdict(
+            stage, gate="vision_qa", asset_id=asset_id, verdict=verdict,
+            failing_span="; ".join(mismatches) or None, regeneration_counter=regeneration_counter,
+        )
+    return VisionQaResult(
+        status=verdict, text_matches=text_matches, archetype_ok=archetype_ok, mismatches=mismatches, notes=notes,
+    )
+
+
 class MediaGenerator:
     """Owns one media stage invocation: phase-0 resolution of prior
     unresolved intents, then the cost-gated submit/poll/download loop for
@@ -640,6 +864,7 @@ class MediaGenerator:
         run_id: str,
         run_date: str,
         pack_media_dir: Path,
+        llm_client: LlmClient | None = None,
         sleep_fn: Any = time.sleep,
         now_fn: Any = lambda: datetime.now().astimezone(),
         stage: str = "media",
@@ -653,6 +878,10 @@ class MediaGenerator:
         self.run_id = run_id
         self.run_date = run_date
         self.pack_media_dir = pack_media_dir
+        # W8-9 Q4 N-E vision-QA -- ``None`` (LLM disabled/unavailable this
+        # run) degrades every QA call to ``status="skipped"``, never a hard
+        # stage failure.
+        self.llm_client = llm_client
         self._sleep = sleep_fn
         self._now = now_fn
         self.stage = stage
@@ -707,20 +936,7 @@ class MediaGenerator:
     def process(self, plans: list[MediaAssetPlan]) -> MediaStageResult:
         result = MediaStageResult()
         self.resolve_pending()
-
-        spent_usd_run = 0.0
-        count_run = 0
-        circuit_tripped = False
-        ledger_recorded_usd = 0.0
-        balance_fetched = False
-
-        route = self.registry.draft_route
-        if self.registry.tier_ceiling != "draft":
-            raise MediaGenerationError(
-                f"tier_ceiling {self.registry.tier_ceiling!r} exceeds this goal's draft-only policy — policy-stop"
-            )
-        if route.tier != "draft":
-            raise MediaGenerationError(f"draft_route {route.route_id!r} is not tier=draft — policy-stop")
+        acct = _RunAccounting()
 
         for plan in plans:
             if plan.copy_status != "gated-pass":
@@ -732,100 +948,152 @@ class MediaGenerator:
                 result.statuses.append(
                     MediaAssetStatus(
                         asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                        status=status_text,
+                        slot=plan.slot, status=status_text,
                     )
                 )
                 continue
 
-            if circuit_tripped:
+            if acct.circuit_tripped:
                 result.statuses.append(
                     MediaAssetStatus(
                         asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                        status="not generated — unexplained-spend circuit breaker",
+                        slot=plan.slot, status="not generated — unexplained-spend circuit breaker",
                     )
                 )
                 continue
+
+            # W8-9 Q4: route/aspect are resolved per PLAN (hero vs slide,
+            # and per-destination aspect ratio) rather than once for the
+            # whole call -- ``resolve_route`` is where the tier-order
+            # policy-stop lives now (replaces the two old literal
+            # ``== "draft"`` hard-raises), evaluated lazily so a theme that
+            # never actually emits a slide plan this run is never blocked by
+            # a slide-class route it never uses.
+            route_id = self.config.route_by_class.get(plan.asset_class, self.registry.draft_route_id)
+            route = self.registry.resolve_route(route_id)
+            aspect = self.config.aspect_ratio_by_destination.get(plan.destination, self.config.aspect_ratio)
 
             if self.config.dry_run:
                 result.statuses.append(
                     MediaAssetStatus(
                         asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                        status="plan-only — dry run", route_id=route.route_id, model_string=route.model_string,
-                        expected_cost_usd=route.price_usd,
+                        slot=plan.slot, status="plan-only — dry run", route_id=route.route_id,
+                        model_string=route.model_string, expected_cost_usd=route.price_usd,
                     )
                 )
                 continue
 
-            # An existing (identity, attempt) row means a submission was
-            # already attempted -- possibly in a prior invocation of this
-            # same run_id, possibly moments ago in this very call. Resolve
-            # it in place; this is NEVER a new submission, so it is exempt
-            # from caps, cap accounting and the circuit breaker (no new
-            # money can move here -- see §8.5's uniqueness rule).
-            identity_kwargs = dict(
-                theme=self.theme, run_date=self.run_date, cluster_key=plan.cluster_key,
-                asset_slot=plan.destination, language=plan.language,
-                prompt_pattern_version=PROMPT_PATTERN_VERSION, attempt=1,
-            )
-            existing = self.store.find_media_intent(**identity_kwargs)
-            if existing is not None:
-                if not existing.terminal:
-                    self._resolve_one_row(existing)
-                refreshed = self.store.get_media_intent(existing.id)
-                result.statuses.append(self._status_from_row(plan, refreshed or existing))
-                continue
+            result.statuses.append(self._process_gated_plan(plan, route, aspect, acct, result))
 
-            day_spend = self.store.media_spend_usd_for_day(theme=self.theme, run_date=self.run_date)
-            decision = check_caps(
-                count_so_far=count_run, usd_so_far_run=spent_usd_run, usd_so_far_day=day_spend,
-                expected_cost_usd=route.price_usd, count_cap=self.config.per_run_count_cap,
-                run_usd_cap=self.config.per_run_usd_cap, day_usd_cap=self.config.per_day_usd_cap,
-            )
-            if not decision.allowed:
-                self.trace.decision(
-                    self.stage,
-                    decision=f"asset {plan.asset_id}: {decision.status}",
-                    rule="ARCHITECTURE_PLAN §8.11: both caps checked at every submission, whichever trips first stops it",
-                )
-                result.statuses.append(
-                    MediaAssetStatus(
-                        asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                        status=decision.status, route_id=route.route_id, expected_cost_usd=route.price_usd,
-                    )
-                )
-                continue
-
-            if not balance_fetched:
-                result.balance_before = self.kie.get_credit_balance(purpose="pre-submission balance snapshot")
-                balance_fetched = True
-
-            asset_status = self._submit_new(plan, route, identity_kwargs)
-            result.statuses.append(asset_status)
-            # Every branch below is reached only for a genuinely NEW
-            # submission attempt this call (a createTask call was actually
-            # made) -- the no-submission outcomes (awaiting-copy, capped,
-            # dry-run, circuit-breaker-skip, already-exists) are handled by
-            # the ``continue``s above.
-            count_run += 1
-            if asset_status.status == "generated":
-                spent_usd_run += asset_status.observed_cost_usd or route.price_usd
-                ledger_recorded_usd += asset_status.observed_cost_usd or route.price_usd
-            elif asset_status.status in ("pending — adopted by a later run", "submitted-unknown"):
-                spent_usd_run += route.price_usd
-                ledger_recorded_usd += route.price_usd
-                if asset_status.status == "pending — adopted by a later run":
-                    result.pending_count += 1
-                else:
-                    result.submitted_unknown_count += 1
-            # A definite provider-reported failure is not charged per Kie's
-            # documentation (§5.6); nothing added to spend for "failed — *".
-
-            circuit_tripped = self._check_circuit_breaker(result, ledger_recorded_usd)
-
-        result.total_spent_usd = spent_usd_run
+        result.total_spent_usd = acct.spent_usd_run
         result.total_expected_usd = sum(s.expected_cost_usd or 0.0 for s in result.statuses)
-        result.circuit_breaker_tripped = circuit_tripped
+        result.circuit_breaker_tripped = acct.circuit_tripped
         return result
+
+    def _process_gated_plan(
+        self, plan: MediaAssetPlan, route: ModelRoute, aspect: str, acct: _RunAccounting, result: MediaStageResult
+    ) -> MediaAssetStatus:
+        """Attempt 1, then -- only on a QA fail (never on a capped/failed/
+        pending/submitted-unknown outcome, and never once the circuit
+        breaker has tripped) -- exactly ONE regeneration at attempt 2
+        (module docstring: "a real second paid submission, ledger-
+        disciplined", §8.11's caps apply to it exactly like any other
+        submission). A row that reaches ``ATTEMPT_MAX`` still failing QA is
+        marked ``held-qa-failed`` inside :meth:`_complete_success` itself
+        (it knows ``row.attempt`` there), so this method never needs its own
+        "give up" branch -- ``_status_from_row`` already reports it."""
+        status = self._submit_or_resolve(plan, route, aspect, attempt=1, acct=acct, result=result)
+        # A regeneration attempt already on file (a PRIOR invocation's QA
+        # failed and triggered one) is authoritative even when THIS call
+        # resolves attempt 1 from a pre-existing terminal row and so never
+        # re-runs QA on it itself (a resolved row's qa_verdict is not
+        # reconstructed, module docstring) -- without this check, resuming
+        # a held-qa-failed asset would silently forget attempt 2 ever
+        # happened and report attempt 1's plain "generated" instead.
+        attempt2_identity = dict(
+            theme=self.theme, run_date=self.run_date, cluster_key=plan.cluster_key,
+            asset_slot=plan.asset_slot, language=plan.language,
+            prompt_pattern_version=PROMPT_PATTERN_VERSION, attempt=2,
+        )
+        attempt2_exists = self.store.find_media_intent(**attempt2_identity) is not None
+        should_regenerate = attempt2_exists or (
+            status.status == "generated" and status.qa_verdict == "fail" and not acct.circuit_tripped
+        )
+        if not should_regenerate:
+            return status
+        return self._submit_or_resolve(plan, route, aspect, attempt=2, acct=acct, result=result)
+
+    def _submit_or_resolve(
+        self, plan: MediaAssetPlan, route: ModelRoute, aspect: str, *, attempt: int,
+        acct: _RunAccounting, result: MediaStageResult,
+    ) -> MediaAssetStatus:
+        """One (identity, attempt) submission-or-resolution, cap-checked and
+        accounted exactly like ``process()``'s old single-attempt inline
+        block -- factored out so attempt 1 and a QA-triggered attempt 2 for
+        the SAME plan share one cap-check / spend-accounting / circuit-
+        breaker code path instead of two copies of it."""
+        identity_kwargs = dict(
+            theme=self.theme, run_date=self.run_date, cluster_key=plan.cluster_key,
+            asset_slot=plan.asset_slot, language=plan.language,
+            prompt_pattern_version=PROMPT_PATTERN_VERSION, attempt=attempt,
+        )
+        # An existing (identity, attempt) row means a submission was already
+        # attempted -- possibly in a prior invocation of this same run_id,
+        # possibly moments ago in this very call. Resolve it in place; this
+        # is NEVER a new submission, so it is exempt from caps, cap
+        # accounting and the circuit breaker (no new money can move here --
+        # see §8.5's uniqueness rule).
+        existing = self.store.find_media_intent(**identity_kwargs)
+        if existing is not None:
+            if not existing.terminal:
+                self._resolve_one_row(existing)
+            refreshed = self.store.get_media_intent(existing.id)
+            return self._status_from_row(plan, refreshed or existing)
+
+        day_spend = self.store.media_spend_usd_for_day(theme=self.theme, run_date=self.run_date)
+        decision = check_caps(
+            count_so_far=acct.count_run, usd_so_far_run=acct.spent_usd_run, usd_so_far_day=day_spend,
+            expected_cost_usd=route.price_usd, count_cap=self.config.per_run_count_cap,
+            run_usd_cap=self.config.per_run_usd_cap, day_usd_cap=self.config.per_day_usd_cap,
+        )
+        if not decision.allowed:
+            self.trace.decision(
+                self.stage,
+                decision=f"asset {plan.asset_id}/{plan.slot} (attempt {attempt}): {decision.status}",
+                rule="ARCHITECTURE_PLAN §8.11: both caps checked at every submission, whichever trips first stops it",
+            )
+            return MediaAssetStatus(
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
+                status=decision.status, route_id=route.route_id, expected_cost_usd=route.price_usd,
+            )
+
+        if not acct.balance_fetched:
+            result.balance_before = self.kie.get_credit_balance(purpose="pre-submission balance snapshot")
+            acct.balance_fetched = True
+
+        asset_status = self._submit_new(plan, route, aspect, identity_kwargs, attempt=attempt)
+        # Every branch below is reached only for a genuinely NEW submission
+        # attempt this call (a createTask call was actually made) -- the
+        # no-submission outcomes (capped, already-exists) are handled by the
+        # returns above.
+        acct.count_run += 1
+        if asset_status.status in ("generated", "held-qa-failed"):
+            cost = asset_status.observed_cost_usd or route.price_usd
+            acct.spent_usd_run += cost
+            acct.ledger_recorded_usd += cost
+        elif asset_status.status in ("pending — adopted by a later run", "submitted-unknown"):
+            acct.spent_usd_run += route.price_usd
+            acct.ledger_recorded_usd += route.price_usd
+            if asset_status.status == "pending — adopted by a later run":
+                result.pending_count += 1
+            else:
+                result.submitted_unknown_count += 1
+        # A definite provider-reported failure is not charged per Kie's
+        # documentation (§5.6); nothing added to spend for "failed — *".
+
+        if self._check_circuit_breaker(result, acct.ledger_recorded_usd):
+            acct.circuit_tripped = True
+        return asset_status
 
     def _check_circuit_breaker(self, result: MediaStageResult, ledger_recorded_usd: float) -> bool:
         balance_now = self.kie.get_credit_balance(purpose="post-submission balance reconciliation")
@@ -852,21 +1120,43 @@ class MediaGenerator:
             return True
         return False
 
-    def _submit_new(self, plan: MediaAssetPlan, route: ModelRoute, identity_kwargs: dict[str, Any]) -> MediaAssetStatus:
+    def _qa_runner_for(self, plan: MediaAssetPlan, *, regeneration_counter: int) -> Any:
+        """Build the closure :meth:`_complete_success` calls (image path in
+        hand) to run N-E vision-QA for THIS plan's expectations. Only the
+        plan-aware submission path builds one (module docstring: phase-0
+        adoption has no plan and passes ``qa_runner=None`` instead)."""
+
+        def runner(image_path: Path) -> VisionQaResult:
+            return run_vision_qa(
+                llm_client=self.llm_client, image_bytes=image_path.read_bytes(),
+                mime=guess_image_mime(image_path), expected_text=plan.qa_expected_text,
+                archetype=plan.qa_archetype, register=plan.qa_register,
+                purpose=f"N-E vision QA — {plan.asset_id}/{plan.slot} (attempt {regeneration_counter})",
+                trace=self.trace, stage=self.stage, asset_id=f"{plan.asset_id}/{plan.slot}",
+                regeneration_counter=regeneration_counter,
+            )
+
+        return runner
+
+    def _submit_new(
+        self, plan: MediaAssetPlan, route: ModelRoute, aspect: str, identity_kwargs: dict[str, Any], *, attempt: int
+    ) -> MediaAssetStatus:
         """Commit the write-ahead intent row and submit -- called only when
-        ``process()`` has confirmed no (identity, attempt) row already
-        exists. The row is committed BEFORE ``createTask`` is called (§8.5);
-        :class:`MediaIntentAlreadyExists` is still handled defensively below
-        in case of a race between the existence check and this insert."""
-        assert plan.image_brief is not None
-        # W8-9 Q3c: prefer the N-D-crafted, gate-checked hero prompt when
-        # one is available; degrade to the pre-existing deterministic
-        # template otherwise (crafter disabled/unavailable/gate-blocked).
-        prompt = plan.crafted_hero_prompt or compose_prompt(plan.image_brief, self.registry)
+        ``_submit_or_resolve`` has confirmed no (identity, attempt) row
+        already exists. The row is committed BEFORE ``createTask`` is called
+        (§8.5); :class:`MediaIntentAlreadyExists` is still handled
+        defensively below in case of a race between the existence check and
+        this insert."""
+        assert plan.image_brief is not None or plan.crafted_prompt is not None
+        # W8-9 Q3c/Q4: prefer the N-D-crafted, gate-checked prompt for this
+        # exact slot when one is available; degrade to the pre-existing
+        # deterministic template otherwise (crafter disabled/unavailable/
+        # gate-blocked -- hero plans only, see ``plan_media_assets``).
+        prompt = plan.crafted_prompt or compose_prompt(plan.image_brief or "", self.registry)
         try:
             row = self.store.insert_media_intent(
                 run_id=self.run_id, route_id=route.route_id, model_string=route.model_string,
-                requested_aspect=self.config.aspect_ratio, requested_output_format=self.config.output_format,
+                requested_aspect=aspect, requested_output_format=self.config.output_format,
                 prompt_sha256=prompt_sha256(prompt), prompt_full=prompt, expected_cost_credits=route.price_credits,
                 expected_cost_usd=route.price_usd, **identity_kwargs,
             )
@@ -878,8 +1168,8 @@ class MediaGenerator:
         try:
             created = self.kie.create_task(
                 model=route.model_string,
-                input_={"prompt": prompt, "output_format": self.config.output_format, "aspect_ratio": self.config.aspect_ratio},
-                purpose=f"draft-tier image generation for {plan.cluster_key}/{plan.destination}",
+                input_={"prompt": prompt, "output_format": self.config.output_format, "aspect_ratio": aspect},
+                purpose=f"{route.tier}-tier image generation for {plan.cluster_key}/{plan.destination}:{plan.slot} (attempt {attempt})",
             )
         except KieTransportError as exc:
             # Sub-case A candidate: we truly do not know if the provider
@@ -887,11 +1177,11 @@ class MediaGenerator:
             self.store.update_media_intent(row.id, state="submitted-unknown", submitted_unknown_subcase="A")
             self.trace.decision(
                 self.stage,
-                decision=f"createTask transport failure for {plan.asset_id}: {exc} -- submitted-unknown, sub-case A",
+                decision=f"createTask transport failure for {plan.asset_id}/{plan.slot}: {exc} -- submitted-unknown, sub-case A",
                 rule="ARCHITECTURE_PLAN §8.5: money may have moved; no task id means unreachable by query",
             )
             return MediaAssetStatus(
-                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
                 status="submitted-unknown", route_id=route.route_id, model_string=route.model_string,
                 expected_cost_usd=route.price_usd, reason=str(exc),
             )
@@ -900,39 +1190,46 @@ class MediaGenerator:
             # ambiguous, not charged, terminal.
             self.store.update_media_intent(row.id, state="failed", fail_reason=str(exc), terminal=True, resolved_at=self._now())
             return MediaAssetStatus(
-                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
                 status="failed — createTask rejected", route_id=route.route_id, model_string=route.model_string,
                 expected_cost_usd=route.price_usd, reason=str(exc),
             )
 
         self.store.set_media_task_id(row.id, created.task_id)
-        return self._poll_to_resolution(plan, route, row.id, created.task_id)
+        qa_runner = self._qa_runner_for(plan, regeneration_counter=attempt)
+        return self._poll_to_resolution(plan, route, row.id, created.task_id, qa_runner=qa_runner)
 
-    def _poll_to_resolution(self, plan: MediaAssetPlan, route: ModelRoute, row_id: int, task_id: str) -> MediaAssetStatus:
+    def _poll_to_resolution(
+        self, plan: MediaAssetPlan, route: ModelRoute, row_id: int, task_id: str, *, qa_runner: Any = None
+    ) -> MediaAssetStatus:
         deadline = self.config.poll_timeout_seconds
         elapsed = 0.0
         while True:
             try:
-                info = self.kie.record_info(task_id, purpose=f"poll job status for {plan.asset_id}")
+                info = self.kie.record_info(task_id, purpose=f"poll job status for {plan.asset_id}/{plan.slot}")
             except (KieTransportError, KieApiError):
                 self.store.update_media_intent(row_id, state="submitted-unknown", submitted_unknown_subcase="B")
                 return MediaAssetStatus(
                     asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                    status="submitted-unknown", route_id=route.route_id, model_string=route.model_string,
-                    expected_cost_usd=route.price_usd, task_id=task_id,
+                    slot=plan.slot, status="submitted-unknown", route_id=route.route_id,
+                    model_string=route.model_string, expected_cost_usd=route.price_usd, task_id=task_id,
                 )
             if info.is_success:
                 row = self.store.get_media_intent(row_id)
                 assert row is not None
-                self._complete_success(row, info)
+                qa_result = self._complete_success(row, info, qa_runner=qa_runner)
                 refreshed = self.store.get_media_intent(row_id)
-                return self._status_from_row(plan, refreshed)
+                status = self._status_from_row(plan, refreshed)
+                if qa_result is not None:
+                    status.qa_verdict = qa_result.status
+                return status
             if info.is_failure:
                 row = self.store.get_media_intent(row_id)
                 assert row is not None
                 self._complete_failure(row, info)
                 return MediaAssetStatus(
                     asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                    slot=plan.slot,
                     status="failed — provider refused" if _looks_like_refusal(info) else "failed — provider error",
                     route_id=route.route_id, model_string=route.model_string, task_id=task_id,
                     reason=info.fail_msg or info.fail_code,
@@ -940,25 +1237,35 @@ class MediaGenerator:
             if elapsed >= deadline:
                 self.trace.degrade(
                     self.stage,
-                    condition=f"asset {plan.asset_id} still pending at poll timeout ({deadline}s)",
+                    condition=f"asset {plan.asset_id}/{plan.slot} still pending at poll timeout ({deadline}s)",
                     caused="§8.13: job stays 'polling', adopted by a later run's phase-0 resolution",
                 )
                 return MediaAssetStatus(
                     asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                    status="pending — adopted by a later run", route_id=route.route_id,
+                    slot=plan.slot, status="pending — adopted by a later run", route_id=route.route_id,
                     model_string=route.model_string, expected_cost_usd=route.price_usd, task_id=task_id,
                 )
             self._sleep(self.config.poll_interval_seconds)
             elapsed += self.config.poll_interval_seconds
 
-    def _complete_success(self, row: MediaIntentRow, info: RecordInfoResult) -> None:
+    def _complete_success(
+        self, row: MediaIntentRow, info: RecordInfoResult, *, qa_runner: Any = None
+    ) -> "VisionQaResult | None":
+        """Download + checksum, run N-E vision-QA (when ``qa_runner`` is
+        given -- the plan-aware submission path always supplies one; phase-0
+        adoption never does, module docstring), and persist both the ledger
+        row and the per-asset provenance YAML. Returns the QA verdict (or
+        ``None`` when nothing was ever downloaded/marked done) so the caller
+        can decide whether a regeneration attempt is warranted."""
         if not info.result_urls:
             self.store.update_media_intent(
                 row.id, state="failed", fail_reason="success state with no resultUrls", terminal=True,
                 resolved_at=self._now(),
             )
             return None
-        dest_path = self.pack_media_dir / f"{row.cluster_key}_{row.asset_slot}.{self.config.output_format}"
+        destination, slot = _parse_asset_slot(row.asset_slot)
+        asset_dir = self.pack_media_dir / f"{row.cluster_key}_{destination}"
+        dest_path = asset_dir / f"{slot}.{self.config.output_format}"
         outcome = download_and_checksum(self.kie.fetcher, info.result_urls[0], dest_path)
         if not outcome.ok:
             # Retry once (§5.5: a truncated download is never marked done).
@@ -979,18 +1286,32 @@ class MediaGenerator:
             requested_model=row.model_string, reported_model=info.model,
         )
         observed_usd = (info.credits_consumed * self.registry.credit_usd) if info.credits_consumed else row.expected_cost_usd
+
+        if qa_runner is not None:
+            qa_result = qa_runner(dest_path)
+        else:
+            qa_result = VisionQaResult(
+                status="skipped",
+                skip_reason="phase0-adoption (no plan context available for text/archetype expectations this milestone)",
+            )
+
+        # W8-9 Q4: a QA fail on the LAST allowed attempt is held for
+        # operator review rather than shipped as "generated" -- it stays
+        # "done" in every other respect (terminal, image on disk, ledger
+        # settled) so nothing here re-triggers a THIRD paid attempt.
+        final_state = "held-qa-failed" if (qa_result.status == "fail" and row.attempt >= ATTEMPT_MAX) else "done"
         self.store.update_media_intent(
-            row.id, state="done", delivered_route_state=delivered_state, delivered_model=delivered_model,
+            row.id, state=final_state, delivered_route_state=delivered_state, delivered_model=delivered_model,
             observed_cost_credits=info.credits_consumed, observed_cost_usd=observed_usd,
             image_path=str(dest_path), checksum_sha256=outcome.checksum_sha256, terminal=True,
             resolved_at=self._now(),
         )
         _write_provenance_yaml(
-            self.pack_media_dir, row=row, delivered_state=delivered_state, delivered_model=delivered_model,
+            asset_dir, row=row, delivered_state=delivered_state, delivered_model=delivered_model,
             checksum=outcome.checksum_sha256, observed_cost_usd=observed_usd, image_path=dest_path,
-            registry=self.registry, prompt_full=row.prompt_full,
+            registry=self.registry, prompt_full=row.prompt_full, slot=slot, qa=qa_result, final_state=final_state,
         )
-        return None
+        return qa_result
 
     def _complete_failure(self, row: MediaIntentRow, info: RecordInfoResult) -> None:
         self.store.update_media_intent(
@@ -1002,30 +1323,38 @@ class MediaGenerator:
         if row is None:
             return MediaAssetStatus(
                 asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
-                status="submitted-unknown",
+                slot=plan.slot, status="submitted-unknown",
             )
         if row.state == "done":
             return MediaAssetStatus(
-                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
                 status="generated", route_id=row.route_id, model_string=row.model_string,
                 expected_cost_usd=row.expected_cost_usd, observed_cost_usd=row.observed_cost_usd,
                 delivered_route_state=row.delivered_route_state, image_path=row.image_path, task_id=row.task_id,
             )
+        if row.state == "held-qa-failed":
+            return MediaAssetStatus(
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
+                status="held-qa-failed", route_id=row.route_id, model_string=row.model_string,
+                expected_cost_usd=row.expected_cost_usd, observed_cost_usd=row.observed_cost_usd,
+                delivered_route_state=row.delivered_route_state, image_path=row.image_path, task_id=row.task_id,
+                reason="N-E vision-QA failed on both attempts — held for operator review, never auto-shipped anyway",
+            )
         if row.state == "failed":
             return MediaAssetStatus(
-                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
                 status="failed — provider refused" if row.fail_reason and _refusal_text(row.fail_reason) else "failed — provider error",
                 route_id=row.route_id, model_string=row.model_string, task_id=row.task_id, reason=row.fail_reason,
             )
         if row.state == "submitted-unknown":
             return MediaAssetStatus(
-                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
                 status="submitted-unknown", route_id=row.route_id, model_string=row.model_string,
                 expected_cost_usd=row.expected_cost_usd, task_id=row.task_id,
             )
         # Still polling/intent -- treat as pending-adopted for display.
         return MediaAssetStatus(
-            asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination,
+            asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
             status="pending — adopted by a later run", route_id=row.route_id, model_string=row.model_string,
             expected_cost_usd=row.expected_cost_usd, task_id=row.task_id,
         )
@@ -1042,7 +1371,7 @@ def _refusal_text(reason: str) -> bool:
 
 
 def _write_provenance_yaml(
-    pack_media_dir: Path,
+    asset_dir: Path,
     *,
     row: MediaIntentRow,
     delivered_state: str,
@@ -1051,24 +1380,39 @@ def _write_provenance_yaml(
     observed_cost_usd: float | None,
     image_path: Path,
     registry: ModelRegistry,
+    slot: str,
+    qa: "VisionQaResult",
+    final_state: str,
     prompt_full: str | None = None,
 ) -> None:
-    """Per-asset provenance record (§5.6/§12.2), stored beside the image.
-    Provider URLs are never written here or anywhere else in the pack.
+    """Per-slot provenance record (§5.6/§12.2), stored beside the image
+    inside its asset's own ``pack/media/<cluster_key>_<destination>/``
+    folder (W8-9 Q4 pack layout -- one folder per asset, one image + one
+    provenance file per slot: ``hero.png``/``hero.provenance.yaml`` for a
+    single-image destination, ``slide_01.png``/``slide_01.provenance.yaml``
+    ... for a carousel). Provider URLs are never written here or anywhere
+    else in the pack.
 
     ``prompt_full`` (W8-8) is the complete, exact prompt sent to the image
-    model -- own-authored content (the copy asset's ``image_brief`` plus the
-    injected negative constraints from :func:`compose_prompt`), not
-    third-party text, so unlike the trace's own redaction rule (sha256 +
-    length only, RUN_TRACE_SPEC §3) it is safe and useful to keep in full
-    here, beside the image it produced."""
+    model -- own-authored content (either an N-D-crafted prompt or
+    :func:`compose_prompt`'s output), not third-party text, so unlike the
+    trace's own redaction rule (sha256 + length only, RUN_TRACE_SPEC §3) it
+    is safe and useful to keep in full here, beside the image it produced.
+
+    ``qa`` (W8-9 Q4 N-E) is always present -- a ``status="skipped"`` verdict
+    with its ``skip_reason`` is not a failure, just an honest "nothing was
+    checked here and here is why"."""
+    destination, _slot_from_asset_slot = _parse_asset_slot(row.asset_slot)
     doc = {
         "asset_id": f"{row.cluster_key}_{row.asset_slot}",
         "cluster_key": row.cluster_key,
-        "destination": row.asset_slot,
+        "destination": destination,
+        "slot": slot,
         "language": row.language,
+        "status": final_state,
         "requested_route": row.route_id,
         "requested_model": row.model_string,
+        "requested_aspect": row.requested_aspect,
         "delivered_route_state": delivered_state,
         "delivered_model": delivered_model,
         "price_snapshot_date": registry.price_snapshot_date,
@@ -1081,7 +1425,9 @@ def _write_provenance_yaml(
         "prompt_full": prompt_full,
         "attempt": row.attempt,
         "created_at": row.created_at,
+        "qa": qa.to_yaml_dict(),
         "logo_overlay": "deferred to a later phase — this pack carries the raw generated image only",
     }
-    provenance_path = pack_media_dir / f"{row.cluster_key}_{row.asset_slot}.provenance.yaml"
+    provenance_path = asset_dir / f"{slot}.provenance.yaml"
+    provenance_path.parent.mkdir(parents=True, exist_ok=True)
     provenance_path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")

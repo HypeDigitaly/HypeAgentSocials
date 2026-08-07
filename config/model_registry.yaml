@@ -27,10 +27,19 @@
 # - nano-banana-2             -- corrected; no "google/" prefix and no
 #   "-pro" suffix exist on docs.kie.ai (there is no nano-banana-pro page at
 #   all). Verified string + page: docs.kie.ai/market/google/nanobanana2.
-#   Price snapshot for this route is retained from the original estimate
-#   (kie.ai's pricing page does not expose a per-model credit table); it is
-#   NOT auto-selected in this goal (standard tier) so the estimate is
-#   directional only, not spend-bearing.
+#   LIVE-VERIFIED 2026-08-07 (W8-9 Q4, operator-authorized bounded-spend
+#   test): one real createTask + recordInfo round trip through the actual
+#   MediaGenerator code path (task id 096f35cc2401b0c67d2d85112b7258d8),
+#   requesting a 1024x1024-class 1:1 PNG with an on-image text overlay and a
+#   handle -- delivered a real image with the requested headline rendered
+#   correctly (confirmed separately by a live N-E vision-QA call). Account
+#   balance dropped from 10064 to 10056 credits -- exactly 8 credits
+#   ($0.04 at credit_usd=0.005), matching the "creditsConsumed" field on the
+#   recordInfo response exactly. This CORRECTS the old directional estimate
+#   of 24 credits ($0.12) below -- the real price is a third of that
+#   estimate. "model" echoed the request (no substitution observed, same
+#   caveat as the draft-tier note above: consistent with, not proof of, the
+#   three-state rule).
 #
 # Router facts that bind M4 (from W8-3 inspection + docs, confirmed live):
 # - createTask: POST https://api.kie.ai/api/v1/jobs/createTask
@@ -83,13 +92,22 @@ routes:
     tier: standard
     display: "Nano Banana 2"
     model_string: "nano-banana-2"    # CORRECTED 2026-08-07: no "google/" prefix, no "-pro" suffix — no nano-banana-pro page exists on docs.kie.ai; verified vs docs.kie.ai/market/google/nanobanana2
-    price_credits: 24
-    price_usd: 0.12
-    notes: "Price is a directional carry-over, NOT re-verified (docs.kie.ai's model pages carry no per-model credit table) — NOT auto-selected in this goal; draft tier only for the M5 test run; tier_ceiling below blocks selection entirely regardless"
+    price_credits: 8    # LIVE-VERIFIED 2026-08-07 (W8-9 Q4): balance dropped 10064 -> 10056 on one real submission; corrects the prior 24-credit directional estimate
+    price_usd: 0.04
+    notes: "Standard-tier default route (W8-9 Q4: route_by_class in a theme's media config points hero/slide here by default) — text-in-image and a handle both rendered correctly on the one live-verified round trip; price re-verified live, not a carry-over estimate anymore"
 
 defaults:
   draft_route: img-draft-nano-banana
   fallback_draft_route: img-draft-seedream
-  tier_ceiling: draft          # unattended/auto selection may never exceed this in the goal campaign
+  # W8-9 Q4: raised draft -> standard -- the goal's finish line is a real
+  # standard-tier (nano-banana-2) test run. tier_ceiling still fail-closes
+  # anything above it (there is no tier above standard registered here);
+  # media_gen.py's route-selection now does a genuine tier-ORDER comparison
+  # (draft < standard) rather than the two old literal "== draft" hard-raises.
+  tier_ceiling: standard
+  # W8-9 Q4: superseded -- media_gen.compose_prompt no longer branches on
+  # this (the buggy substring filter it drove is deleted outright, not
+  # patched); the W8-9 negative-constraint set has no "no people" clause to
+  # filter in the first place. Left loaded, unused, for config back-compat.
   people_free_composition: true
   policy_a_no_product_depiction: true

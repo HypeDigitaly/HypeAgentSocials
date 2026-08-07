@@ -45,7 +45,8 @@ from typing import Any
 
 import yaml
 
-from hypeagent import media_gen, render_trace
+from hypeagent import analysis as analysis_module
+from hypeagent import media_gen, promptcraft, render_trace
 from hypeagent import resume_state as resume_state_module
 from hypeagent.collectors import virlo as virlo_collector
 from hypeagent.store import Store
@@ -155,7 +156,9 @@ def _render(
     )
     lines.extend(_safe_section("Ranking outcome", _section_ranking, run_dir=run_dir))
     lines.extend(_safe_section("Spin rationale", _section_spin, run_dir=run_dir))
+    lines.extend(_safe_section("Viral playbook (N-A)", _section_viral_playbook, run_dir=run_dir))
     lines.extend(_safe_section("Copy I/O", _section_copy_io, run_dir=run_dir, events=events))
+    lines.extend(_safe_section("Media prompts (N-D)", _section_media_prompts, run_dir=run_dir))
     lines.extend(_safe_section("Image generation", _section_media, run_dir=run_dir, config_dir=config_dir, events=events))
     lines.extend(_safe_section("Spend summary", _section_spend, events=events))
     lines.extend(_section_hygiene())
@@ -590,6 +593,66 @@ def _section_spin(*, run_dir: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# 5b. Viral playbook (N-A) — W8-9 Q4.
+# ---------------------------------------------------------------------------
+
+
+def _section_viral_playbook(*, run_dir: Path) -> list[str]:
+    """``analysis/viral_playbook.yaml``, when this run produced one --
+    degrades to an explicit one-liner for every other case (N-A skipped,
+    degraded, or the file simply predates this engine version) rather than
+    guessing at a shape it cannot find."""
+    playbook_path = run_dir / analysis_module.VIRAL_PLAYBOOK_DIRNAME / analysis_module.VIRAL_PLAYBOOK_FILENAME
+    if not playbook_path.exists():
+        return ["_No `analysis/viral_playbook.yaml` on file for this run (N-A did not run, or this engine version predates it)._"]
+    playbook = analysis_module.load_viral_playbook_file(playbook_path)
+    if playbook is None:
+        return ["_`analysis/viral_playbook.yaml` is present but unreadable/malformed._"]
+    if playbook.skipped:
+        return [f"_N-A skipped this run: {playbook.skip_reason or 'no reason recorded'}._"]
+
+    lines: list[str] = []
+    if playbook.degraded:
+        lines.append(f"_degraded: {playbook.degrade_reason or 'unknown reason'}_")
+        lines.append("")
+    if not playbook.themes and not playbook.viral_tactics_digest and not playbook.connecting_thread:
+        lines.append("_Playbook produced no themes or global digest this run._")
+        return lines
+
+    for theme in playbook.themes:
+        lines.append(f"### {theme.theme}")
+        lines.append("")
+        if theme.winning_hooks:
+            lines.append(f"- winning hooks: {', '.join(theme.winning_hooks)}")
+        if theme.formats:
+            lines.append(f"- formats: {', '.join(theme.formats)}")
+        if theme.visual_archetypes_seen:
+            lines.append(f"- visual archetypes seen: {', '.join(theme.visual_archetypes_seen)}")
+        if theme.tools_shown:
+            lines.append(f"- tools shown: {', '.join(theme.tools_shown)}")
+        if theme.numbers_used:
+            lines.append(f"- numbers used: {', '.join(theme.numbers_used)}")
+        if theme.platform_norms:
+            norms = "; ".join(f"{k}: {v}" for k, v in theme.platform_norms.items())
+            lines.append(f"- platform norms: {norms}")
+        lines.append("")
+
+    if playbook.viral_tactics_digest:
+        lines.append("**Global viral tactics digest:**")
+        lines.append("")
+        lines.extend(f"- {tactic}" for tactic in playbook.viral_tactics_digest)
+        lines.append("")
+    if playbook.connecting_thread:
+        lines.append(f"**Connecting thread:** {playbook.connecting_thread}")
+        lines.append("")
+    if playbook.do_not_do:
+        lines.append("**Do-not-do:**")
+        lines.extend(f"- {item}" for item in playbook.do_not_do)
+        lines.append("")
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # 6. Copy I/O.
 # ---------------------------------------------------------------------------
 
@@ -683,13 +746,61 @@ def _destination_from_request(request_path: Path | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Media prompts (N-D) — W8-9 Q4.
+# ---------------------------------------------------------------------------
+
+
+def _section_media_prompts(*, run_dir: Path) -> list[str]:
+    """The full, exact prompt(s) N-D crafted for every gated-pass asset,
+    read back from ``media_prompts.yaml`` -- own-authored content (module
+    docstring's redaction-boundary exception), shown in full per slot
+    (``hero`` or every ``slide_NN``), whether or not it was ever actually
+    submitted this run (a carousel's slide prompts are persisted even before
+    W8-9 Q4 wired their submission)."""
+    path = run_dir / promptcraft.MEDIA_PROMPTS_FILENAME
+    if not path.exists():
+        return ["_No `media_prompts.yaml` on file for this run (N-D did not run, or this engine version predates it)._"]
+    prompt_sets = promptcraft.load_media_prompts(run_dir)
+    if not prompt_sets:
+        return ["_`media_prompts.yaml` is present but empty or unreadable._"]
+
+    lines: list[str] = []
+    for asset_id in sorted(prompt_sets):
+        prompt_set = prompt_sets[asset_id]
+        lines.append(f"### {asset_id}")
+        lines.append("")
+        if prompt_set.unavailable:
+            lines.append(f"_unavailable: {prompt_set.unavailable_reason or 'no reason recorded'}_")
+            lines.append("")
+            continue
+        if prompt_set.gate_blocked:
+            lines.append("_gate-blocked — these crafted prompts failed the deterministic claim gate:_")
+            lines.extend(f"- {span}" for span in prompt_set.gate_failing_spans)
+            lines.append("")
+        if prompt_set.archetype or prompt_set.register:
+            lines.append(f"- archetype: {prompt_set.archetype or '—'}; register: {prompt_set.register or '—'}")
+            lines.append("")
+        for image in prompt_set.images:
+            lines.append(f"**{image.slot}:**")
+            lines.append("")
+            lines.append("> " + image.prompt.replace("\n", "\n> "))
+            lines.append("")
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # 7. Image generation.
 # ---------------------------------------------------------------------------
 
 
 def _section_media(*, run_dir: Path, config_dir: Path, events: list[dict[str, Any]]) -> list[str]:
     media_dir = run_dir / "pack" / "media"
-    provenance_paths = sorted(media_dir.glob("*.provenance.yaml")) if media_dir.exists() else []
+    # W8-9 Q4 pack layout nests one provenance file per slot inside its own
+    # ``<cluster_key>_<destination>/`` folder (``hero.provenance.yaml``,
+    # ``slide_01.provenance.yaml``, ...); a run from before that milestone
+    # wrote it flat, directly under ``pack/media/``. ``rglob`` finds both
+    # without the summarizer needing to know which shape any given run used.
+    provenance_paths = sorted(media_dir.rglob("*.provenance.yaml")) if media_dir.exists() else []
     if not provenance_paths:
         return ["_No media assets were generated (or provenance-recorded) this run._"]
 
@@ -702,21 +813,53 @@ def _section_media(*, run_dir: Path, config_dir: Path, events: list[dict[str, An
         and "createTask" in ev.get("detail", {}).get("endpoint", "")
     ]
 
-    lines: list[str] = []
+    docs: list[dict[str, Any]] = []
     for path in provenance_paths:
         try:
-            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            docs.append(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
         except OSError:
             continue
+
+    lines: list[str] = []
+    # W8-9 Q4: one row per slot (hero or slide_NN), including carousels --
+    # the summary table this milestone adds so a multi-image asset's QA
+    # verdicts and per-slot cost are scannable without opening every
+    # provenance YAML individually.
+    lines.append("| asset | slot | route | cost | QA verdict | checksum |")
+    lines.append("|---|---|---|---|---|---|")
+    for doc in docs:
+        qa = doc.get("qa") or {}
+        qa_display = qa.get("status", "—")
+        if qa_display == "skipped" and qa.get("skip_reason"):
+            qa_display = f"skipped ({qa['skip_reason']})"
+        lines.append(
+            f"| {_md(doc.get('asset_id', '?'))} | {_md(doc.get('slot', 'hero'))} | "
+            f"`{doc.get('requested_route')}` | ${doc.get('observed_cost_usd')} | {_md(qa_display)} | "
+            f"{doc.get('checksum_sha256')} |"
+        )
+    lines.append("")
+
+    for path, doc in zip(provenance_paths, docs):
         asset_id = doc.get("asset_id", path.stem)
-        lines.append(f"### {asset_id}")
+        slot = doc.get("slot", "hero")
+        lines.append(f"### {asset_id} ({slot})")
         lines.append("")
         lines.append(f"- route: `{doc.get('requested_route')}` (model `{doc.get('requested_model')}`)")
         lines.append(f"- delivered route state: {doc.get('delivered_route_state')} (delivered model: {doc.get('delivered_model')})")
         lines.append(f"- cost: ${doc.get('observed_cost_usd')}")
         lines.append(f"- task id: {doc.get('task_id')}")
-        lines.append(f"- provenance state: {doc.get('delivered_route_state')}")
+        lines.append(f"- provenance state: {doc.get('status', doc.get('delivered_route_state'))}")
         lines.append(f"- checksum (sha256): {doc.get('checksum_sha256')}")
+        qa = doc.get("qa") or {}
+        if qa:
+            lines.append(
+                f"- N-E vision-QA: **{qa.get('status', '—')}** "
+                f"(text_matches={qa.get('text_matches')}, archetype_ok={qa.get('archetype_ok')}"
+                + (f", skip_reason={qa.get('skip_reason')}" if qa.get("skip_reason") else "")
+                + ")"
+            )
+            if qa.get("mismatches"):
+                lines.append(f"  - mismatches: {'; '.join(qa['mismatches'])}")
         image_path = doc.get("image_path")
         lines.append(f"- image path: {_rel(Path(image_path), run_dir) if image_path else '—'}")
         lines.append("")

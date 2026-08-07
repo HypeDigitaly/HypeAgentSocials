@@ -83,6 +83,13 @@ class CraftedPromptSet:
     unavailable_reason: str | None = None
     gate_blocked: bool = False
     gate_failing_spans: list[str] = field(default_factory=list)
+    # W8-9 Q4: the archetype/register this set was crafted against (see
+    # ``pick_archetype_register``) -- carried alongside the prompts
+    # themselves so a later N-E vision-QA call has the SAME expectation the
+    # crafter used, without recomputing it (and without re-reading the style
+    # guide / viral playbook a second time).
+    archetype: str | None = None
+    register: str | None = None
 
     def hero_prompt(self) -> str | None:
         """The single-image path's prompt, when one exists — ``None`` for a
@@ -105,6 +112,8 @@ class CraftedPromptSet:
             "unavailable_reason": self.unavailable_reason,
             "gate_blocked": self.gate_blocked,
             "gate_failing_spans": self.gate_failing_spans,
+            "archetype": self.archetype,
+            "register": self.register,
             "images": [i.to_yaml_dict() for i in self.images],
         }
 
@@ -121,6 +130,8 @@ def _from_yaml_dict(data: dict[str, Any]) -> CraftedPromptSet:
         unavailable_reason=data.get("unavailable_reason"),
         gate_blocked=bool(data.get("gate_blocked", False)),
         gate_failing_spans=list(data.get("gate_failing_spans") or []),
+        archetype=data.get("archetype"),
+        register=data.get("register"),
     )
 
 
@@ -277,7 +288,7 @@ def craft_prompts(
                 images.append(CraftedImage(slot=str(item["slot"]), prompt=str(item["prompt"])))
     if not images:
         return CraftedPromptSet(asset_id=asset_id, unavailable=True, unavailable_reason="crafter returned no usable image prompts")
-    return CraftedPromptSet(asset_id=asset_id, images=images)
+    return CraftedPromptSet(asset_id=asset_id, images=images, archetype=archetype, register=register)
 
 
 def gate_check_prompts(
