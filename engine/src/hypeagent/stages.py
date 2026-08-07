@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from hypeagent import brand_truth, copy_gen, packaging, spin as spin_module
+from hypeagent import brand_truth, copy_gen, media_gen, packaging, spin as spin_module
 from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
@@ -45,6 +45,9 @@ from hypeagent.trace import TraceWriter
 # truth resolves once per run, spin maps EN topics deterministically, and
 # copy generates + gates English social assets only (CS stops at ranking,
 # §17.2 Phase-1's four-collector/ranking/pack core stays intact underneath).
+# M4 (GOAL_ROADMAP.md) inserts media after copy: one Kie.ai draft-tier image
+# per gated-pass copy asset, planning-only for everything else — images
+# only, draft tier only, nothing publishes.
 CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "theme_load",
     "collection",
@@ -52,6 +55,7 @@ CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "brand_truth",
     "spin",
     "copy",
+    "media",
     "packaging",
     "digest",
 )
@@ -519,6 +523,99 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def stage_media(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """Kie.ai draft-tier image generation (GOAL_ROADMAP.md M4): one image
+    per gated-pass copy asset (§4.6: plan-only is always produced for
+    everything else -- held-awaiting-copy assets plan only, zero cost).
+
+    Fail-closed only on genuine machinery faults (bad registry, a
+    tier-ceiling violation) via :class:`media_gen.MediaGenerationError`,
+    which propagates like every other stage exception. A missing/unreadable
+    Kie key file is this stage's own degrade condition (mirrors
+    ``collectors/virlo.py``'s posture for its own key file): every
+    gated-pass asset plans only, at zero cost, and the run continues."""
+    assert ctx.generation is not None and ctx.store is not None
+    copy_statuses = ctx.extra.get("copy_asset_statuses") or []
+    plans = media_gen.plan_media_assets(copy_statuses, language=GENERATION_LANGUAGE)
+    if not plans:
+        ctx.extra["media_asset_statuses"] = []
+        return StageResult(outcome="ok", items_in=0, items_out=0)
+
+    media_cfg = ctx.generation.media
+    registry = media_gen.load_model_registry(ctx.config_dir / "model_registry.yaml")
+
+    secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
+    key_path = Path(media_cfg.key_path) if media_cfg.key_path else (secrets_dir / "kie.key")
+    if not key_path.exists():
+        trace.decision(
+            "media",
+            decision=f"Kie API key file missing at {key_path} — every gated-pass asset plans only, zero spend",
+            rule="ARCHITECTURE_PLAN §4.6: plan-only is always produced, even with no keys and no budget",
+        )
+        statuses = [_plan_only_status(p) for p in plans]
+        ctx.extra["media_asset_statuses"] = statuses
+        return StageResult(outcome="ok", items_in=len(plans), items_out=len(statuses))
+
+    api_key = key_path.read_text(encoding="utf-8").strip()
+    if not api_key:
+        trace.decision(
+            "media",
+            decision=f"Kie API key file at {key_path} is empty — every gated-pass asset plans only, zero spend",
+            rule="ARCHITECTURE_PLAN §4.6: plan-only is always produced, even with no keys and no budget",
+        )
+        statuses = [_plan_only_status(p) for p in plans]
+        ctx.extra["media_asset_statuses"] = statuses
+        return StageResult(outcome="ok", items_in=len(plans), items_out=len(statuses))
+
+    fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+    pack_media_dir = run_dir / "pack" / "media"
+    pack_media_dir.mkdir(parents=True, exist_ok=True)
+
+    kie_client = media_gen.KieClient(fetcher=fetcher, api_key=api_key, trace=trace, registry=registry, stage="media")
+    generator = media_gen.MediaGenerator(
+        store=ctx.store, trace=trace, registry=registry, media_config=media_cfg, kie_client=kie_client,
+        theme=ctx.theme_name, run_id=ctx.run_id, run_date=ctx.run_date, pack_media_dir=pack_media_dir,
+    )
+    result = generator.process(plans)
+    ctx.extra["media_asset_statuses"] = result.statuses
+    ctx.extra["media_stage_result"] = result
+
+    budget_capped = any(
+        s.status in (media_gen.STATUS_BUDGET_CAPPED, media_gen.STATUS_COUNT_CAPPED) for s in result.statuses
+    )
+    outcome = "ok"
+    extra: dict[str, Any] = {
+        "generated": sum(1 for s in result.statuses if s.status == "generated"),
+        "pending": result.pending_count,
+        "submitted_unknown": result.submitted_unknown_count,
+        "circuit_breaker_tripped": result.circuit_breaker_tripped,
+        "spent_usd": round(result.total_spent_usd, 4),
+    }
+    if budget_capped:
+        outcome = "degraded"
+        extra["budget_capped_mid_pack"] = True
+    elif result.circuit_breaker_tripped:
+        outcome = "degraded"
+    elif result.pending_count:
+        outcome = "degraded"
+        extra["pending_media_only"] = True
+
+    return StageResult(outcome=outcome, items_in=len(plans), items_out=len(result.statuses), extra=extra)
+
+
+def _plan_only_status(plan: media_gen.MediaAssetPlan) -> media_gen.MediaAssetStatus:
+    if plan.copy_status.startswith("held"):
+        status = "awaiting copy — not submitted"
+    elif plan.copy_status == "gated-pass":
+        status = "plan-only — no Kie API key configured"
+    else:
+        status = "not generated — copy blocked (no approved brief)"
+    return media_gen.MediaAssetStatus(
+        asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, status=status,
+    )
+
+
 def stage_packaging(ctx: RunContext, trace: TraceWriter) -> StageResult:
     """Write scorecards + signal provenance, register canonical keys."""
     assert ctx.store is not None and ctx.research is not None
@@ -566,6 +663,8 @@ def stage_digest(ctx: RunContext, trace: TraceWriter) -> StageResult:
         spin_results=ctx.extra.get("spin_results"),
         copy_asset_statuses=ctx.extra.get("copy_asset_statuses"),
         cs_holds=ctx.extra.get("cs_holds"),
+        media_asset_statuses=ctx.extra.get("media_asset_statuses"),
+        media_registry_price_snapshot_date=_media_price_snapshot_date(ctx),
     )
     data = digest_path.read_bytes()
     trace.artifact_write("digest", path=str(digest_path), kind="digest", bytes_=len(data), sha256=_sha256_hex(data))
@@ -578,6 +677,14 @@ def stage_digest(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def _media_price_snapshot_date(ctx: RunContext) -> str | None:
+    try:
+        registry = media_gen.load_model_registry(ctx.config_dir / "model_registry.yaml")
+    except Exception:
+        return None
+    return registry.price_snapshot_date
+
+
 CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
     ("theme_load", stage_theme_load),
     ("collection", stage_collection),
@@ -585,6 +692,7 @@ CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
     ("brand_truth", stage_brand_truth),
     ("spin", stage_spin),
     ("copy", stage_copy),
+    ("media", stage_media),
     ("packaging", stage_packaging),
     ("digest", stage_digest),
 )
@@ -630,6 +738,10 @@ def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
             degraded = True
             if stage_name == "collection":
                 degraded_class = ExitClass.PARTIAL_SUCCESS_DEGRADED_SOURCES.value
+            elif stage_name == "media" and result.extra.get("budget_capped_mid_pack"):
+                degraded_class = ExitClass.PARTIAL_SUCCESS_BUDGET_CAPPED_MID_PACK.value
+            elif stage_name == "media" and result.extra.get("pending_media_only") and degraded_class is None:
+                degraded_class = ExitClass.COMPLETED_WITH_PENDING_MEDIA.value
             elif degraded_class is None:
                 degraded_class = ExitClass.COMPLETED_DEGRADED.value
     if degraded:

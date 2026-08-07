@@ -288,8 +288,32 @@ class OpenAICompatibleConfig:
 
 
 @dataclass(frozen=True)
+class MediaConfig:
+    """The M4 media-generation knob surface for one theme (§5.2, §8.11).
+
+    Safe defaults throughout: a theme predating M4 that omits ``media:``
+    entirely still runs the media stage -- draft tier, tiny caps, the
+    registry's own draft route -- rather than gaining a new fail-closed
+    surface. ``dry_run: true`` produces every plan-only artifact and the
+    full cost forecast, and submits nothing (§4.6)."""
+
+    dry_run: bool = False
+    per_run_usd_cap: float = 0.20
+    per_run_count_cap: int = 4
+    per_day_usd_cap: float = 0.40
+    poll_interval_seconds: float = 7.0
+    poll_timeout_seconds: float = 180.0
+    resolution_window_days: int = 14  # bounded by the provider's 14-day deletion horizon (§8.13)
+    aspect_ratio: str = "1:1"
+    output_format: str = "png"
+    key_path: str = ""  # empty -> caller falls back to secrets_dir/kie.key, matching virlo's SourceConfig.key_path pattern
+    unexplained_spend_threshold: float = 0.20  # relative divergence that trips the circuit breaker
+
+
+@dataclass(frozen=True)
 class GenerationConfig:
-    """The M3 spin/copy/gate knob surface for one theme."""
+    """The M3 spin/copy/gate knob surface for one theme, extended in M4
+    with the media-generation block."""
 
     destinations: list[str]
     copy_provider: str
@@ -297,6 +321,7 @@ class GenerationConfig:
     mapping_distance: MappingDistanceBands
     exemplar_pool: list[str]
     openai_compatible: OpenAICompatibleConfig
+    media: MediaConfig
 
 
 def load_theme_generation_config(config_dir: Path, theme_name: str) -> GenerationConfig:
@@ -325,6 +350,20 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         key_path=str(oai_block.get("key_path", "")),
         max_tokens=int(oai_block.get("max_tokens", 400)),
     )
+    media_block = block.get("media") or {}
+    media = MediaConfig(
+        dry_run=bool(media_block.get("dry_run", False)),
+        per_run_usd_cap=float(media_block.get("per_run_usd_cap", 0.20)),
+        per_run_count_cap=int(media_block.get("per_run_count_cap", 4)),
+        per_day_usd_cap=float(media_block.get("per_day_usd_cap", 0.40)),
+        poll_interval_seconds=float(media_block.get("poll_interval_seconds", 7.0)),
+        poll_timeout_seconds=float(media_block.get("poll_timeout_seconds", 180.0)),
+        resolution_window_days=int(media_block.get("resolution_window_days", 14)),
+        aspect_ratio=str(media_block.get("aspect_ratio", "1:1")),
+        output_format=str(media_block.get("output_format", "png")),
+        key_path=str(media_block.get("key_path", "")),
+        unexplained_spend_threshold=float(media_block.get("unexplained_spend_threshold", 0.20)),
+    )
     return GenerationConfig(
         destinations=list(block.get("destinations") or ["linkedin", "instagram_feed"]),
         copy_provider=str(block.get("copy_provider", "interactive-file")),
@@ -332,4 +371,5 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         mapping_distance=mapping_distance,
         exemplar_pool=list(block.get("exemplar_pool") or []),
         openai_compatible=openai_compatible,
+        media=media,
     )

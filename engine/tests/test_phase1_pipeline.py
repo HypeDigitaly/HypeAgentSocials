@@ -64,10 +64,49 @@ def _write_brand_truth_config(config_dir: Path) -> None:
     )
 
 
+def _write_model_registry_config(config_dir: Path) -> None:
+    """M4's media stage fails closed on a missing model_registry.yaml (a
+    stage can't route anything without knowing the roster) -- every
+    fixture-driven pipeline test needs a minimal, valid registry. No Kie
+    key file is written alongside it, so the media stage's own degrade
+    path (missing key -> plan-only, zero cost) is what every existing
+    pipeline test exercises by default."""
+    (config_dir / "model_registry.yaml").write_text(
+        "meta:\n"
+        "  registry_version: 1\n"
+        "  price_snapshot_date: \"2026-08-07\"\n"
+        "  credit_usd: 0.005\n"
+        "  provider: \"kie.ai\"\n"
+        "  create_task_url: \"https://api.kie.ai/api/v1/jobs/createTask\"\n"
+        "  record_info_url: \"https://api.kie.ai/api/v1/jobs/recordInfo\"\n"
+        "routes:\n"
+        "  - route_id: img-draft-nano-banana\n"
+        "    tier: draft\n"
+        "    display: \"Nano Banana\"\n"
+        "    model_string: \"google/nano-banana\"\n"
+        "    price_credits: 4\n"
+        "    price_usd: 0.02\n"
+        "  - route_id: img-draft-seedream\n"
+        "    tier: draft\n"
+        "    display: \"Seedream\"\n"
+        "    model_string: \"bytedance/seedream-v4-text-to-image\"\n"
+        "    price_credits: 3.5\n"
+        "    price_usd: 0.0175\n"
+        "defaults:\n"
+        "  draft_route: img-draft-nano-banana\n"
+        "  fallback_draft_route: img-draft-seedream\n"
+        "  tier_ceiling: draft\n"
+        "  people_free_composition: true\n"
+        "  policy_a_no_product_depiction: true\n",
+        encoding="utf-8",
+    )
+
+
 def _write_config(tmp_path: Path, *, denied_sources=None, lexicon_terms=None) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     _write_brand_truth_config(config_dir)
+    _write_model_registry_config(config_dir)
     (config_dir / "hard_excludes.yaml").write_text(
         "hard_excludes:\n  topics: []\n  framings: []\n  claim_types: []\n  do_not_mention_entities: []\n",
         encoding="utf-8",

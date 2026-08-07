@@ -108,6 +108,8 @@ def render_digest(
     spin_results: dict[str, Any] | None = None,
     copy_asset_statuses: list[Any] | None = None,
     cs_holds: list[dict[str, str]] | None = None,
+    media_asset_statuses: list[Any] | None = None,
+    media_registry_price_snapshot_date: str | None = None,
 ) -> str:
     """Render ``digest.md`` (§12.1, Phase-1-relevant lines only)."""
     lines: list[str] = []
@@ -128,11 +130,24 @@ def render_digest(
     lines.append("")
     lines.append("| line | amount |")
     lines.append("|---|---|")
-    lines.append("| media | $0.00 |")
+    if media_asset_statuses is not None:
+        media_spent = sum(
+            (s.observed_cost_usd or 0.0) for s in media_asset_statuses if getattr(s, "observed_cost_usd", None)
+        )
+        media_forecast = sum(
+            (s.expected_cost_usd or 0.0) for s in media_asset_statuses
+            if getattr(s, "expected_cost_usd", None) and s.status not in ("generated",)
+        )
+        snapshot_note = f" (price snapshot {media_registry_price_snapshot_date})" if media_registry_price_snapshot_date else ""
+        lines.append(f"| media — actual spend | ${media_spent:.4f}{snapshot_note} |")
+        lines.append(f"| media — forecast (unresolved/planned) | ${media_forecast:.4f}{snapshot_note} |")
+    else:
+        lines.append("| media | $0.00 |")
     lines.append("| text-per-artifact | $0.00 |")
     lines.append("| text-per-candidate | $0.00 |")
     lines.append("")
-    lines.append("_Phase 1: no spend-bearing stages enabled._")
+    if media_asset_statuses is None:
+        lines.append("_Phase 1: no spend-bearing stages enabled._")
     lines.append("")
 
     lines.append("## Topic table")
@@ -231,6 +246,39 @@ def render_digest(
             lines.append("_No copy assets this run (no EN candidates reached spin/copy, or copy was refused)._")
         lines.append("")
 
+    if media_asset_statuses is not None:
+        lines.append("## Media status (per asset) — draft-tier images, images only, nothing publishes")
+        lines.append("")
+        if media_asset_statuses:
+            lines.append("| asset | route | cost | provenance | image | logo overlay |")
+            lines.append("|---|---|---|---|---|---|")
+            for s in media_asset_statuses:
+                route = s.route_id or "—"
+                cost = f"${s.observed_cost_usd:.4f}" if s.observed_cost_usd else (
+                    f"~${s.expected_cost_usd:.4f}" if s.expected_cost_usd else "$0.00"
+                )
+                provenance = s.delivered_route_state or "—"
+                image = s.image_path or "—"
+                lines.append(f"| {s.asset_id} ({s.status}) | {route} | {cost} | {provenance} | {image} | deferred to a later phase |")
+        else:
+            lines.append("_No media assets this run._")
+        lines.append("")
+        pending = [s for s in media_asset_statuses if s.status == "pending — adopted by a later run"]
+        if pending:
+            lines.append(
+                f"**{len(pending)} media job(s) still pending** — adopted by a later run's phase-0 resolution; "
+                "provider media is deleted after 14 days, so re-running this pipeline soon rescues that spend."
+            )
+            lines.append("")
+        unknown = [s for s in media_asset_statuses if s.status == "submitted-unknown"]
+        if unknown:
+            lines.append(
+                f"**{len(unknown)} media job(s) could not be resolved** — treated as `submitted-unknown`, "
+                "never auto-resubmitted; expected cost is carried on the ledger's expected side until resolved "
+                "or the resolution window lapses to `paid-lost`."
+            )
+            lines.append("")
+
     lines.append("## Footer")
     lines.append("")
     lines.append(f"- full run trace: [{TRACE_RELATIVE_LINK}]({TRACE_RELATIVE_LINK})")
@@ -297,6 +345,8 @@ def write_digest(
     spin_results: dict[str, Any] | None = None,
     copy_asset_statuses: list[Any] | None = None,
     cs_holds: list[dict[str, str]] | None = None,
+    media_asset_statuses: list[Any] | None = None,
+    media_registry_price_snapshot_date: str | None = None,
 ) -> Path:
     """The ``digest`` stage's work: render and write ``digest.md`` into the
     already-packaged pack directory."""
@@ -314,6 +364,8 @@ def write_digest(
         spin_results=spin_results,
         copy_asset_statuses=copy_asset_statuses,
         cs_holds=cs_holds,
+        media_asset_statuses=media_asset_statuses,
+        media_registry_price_snapshot_date=media_registry_price_snapshot_date,
     )
     digest_path = pack_dir / "digest.md"
     digest_path.write_text(digest_text, encoding="utf-8")

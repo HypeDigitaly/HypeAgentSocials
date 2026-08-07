@@ -142,6 +142,47 @@ CREATE TABLE IF NOT EXISTS evidence_floor_breach (
   consecutive_count INTEGER NOT NULL DEFAULT 0,
   last_run_id TEXT
 );
+
+-- M4 (§8.5, §8.11, §8.13): the write-ahead media spend ledger. A row here IS
+-- the idempotency mechanism -- committed BEFORE the createTask HTTP call, one
+-- (identity, attempt) pair permitting at most one paid submission ever (the
+-- UNIQUE constraint below is the enforcement, not a convention).
+CREATE TABLE IF NOT EXISTS media_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  theme TEXT NOT NULL,
+  run_date TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  cluster_key TEXT NOT NULL,
+  asset_slot TEXT NOT NULL,
+  language TEXT NOT NULL,
+  prompt_pattern_version INTEGER NOT NULL,
+  attempt INTEGER NOT NULL,
+  route_id TEXT NOT NULL,
+  model_string TEXT NOT NULL,
+  requested_aspect TEXT,
+  requested_output_format TEXT,
+  prompt_sha256 TEXT NOT NULL,
+  expected_cost_credits REAL NOT NULL,
+  expected_cost_usd REAL NOT NULL,
+  task_id TEXT,
+  state TEXT NOT NULL,
+  submitted_unknown_subcase TEXT,
+  delivered_route_state TEXT,
+  delivered_model TEXT,
+  observed_cost_credits REAL,
+  observed_cost_usd REAL,
+  image_path TEXT,
+  checksum_sha256 TEXT,
+  fail_reason TEXT,
+  created_at TEXT NOT NULL,
+  submitted_at TEXT,
+  resolved_at TEXT,
+  terminal INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (theme, run_date, cluster_key, asset_slot, language, prompt_pattern_version, attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_media_intents_unresolved ON media_intents(theme, terminal);
+CREATE INDEX IF NOT EXISTS idx_media_intents_task_id ON media_intents(task_id);
+CREATE INDEX IF NOT EXISTS idx_media_intents_run_date ON media_intents(theme, run_date);
 """
 
 
@@ -324,6 +365,52 @@ class ExpiryReport:
     verbatim_expired: int = 0
     packs_rewritten: int = 0
     normalized_records_pruned: int = 0
+
+
+# ---------------------------------------------------------------------------
+# M4 write-ahead media spend ledger (§8.5, §8.11, §8.13).
+# ---------------------------------------------------------------------------
+
+
+class MediaIntentAlreadyExists(Exception):
+    """Raised by :meth:`Store.insert_media_intent` when the (identity,
+    attempt) UNIQUE constraint already has a row on file -- the ledger's own
+    double-submission guard. The caller must resolve the existing row
+    (:meth:`Store.find_media_intent`) rather than submit again."""
+
+
+@dataclass
+class MediaIntentRow:
+    id: int
+    theme: str
+    run_date: str
+    run_id: str
+    cluster_key: str
+    asset_slot: str
+    language: str
+    prompt_pattern_version: int
+    attempt: int
+    route_id: str
+    model_string: str
+    requested_aspect: str | None
+    requested_output_format: str | None
+    prompt_sha256: str
+    expected_cost_credits: float
+    expected_cost_usd: float
+    task_id: str | None
+    state: str
+    submitted_unknown_subcase: str | None
+    delivered_route_state: str | None
+    delivered_model: str | None
+    observed_cost_credits: float | None
+    observed_cost_usd: float | None
+    image_path: str | None
+    checksum_sha256: str | None
+    fail_reason: str | None
+    created_at: str
+    submitted_at: str | None
+    resolved_at: str | None
+    terminal: bool
 
 
 class Store:
@@ -794,6 +881,202 @@ class Store:
 
         self._conn.commit()
         return report
+
+    # -- M4 write-ahead media spend ledger (§8.5, §8.11, §8.13) -----------
+
+    def insert_media_intent(
+        self,
+        *,
+        theme: str,
+        run_date: str,
+        run_id: str,
+        cluster_key: str,
+        asset_slot: str,
+        language: str,
+        prompt_pattern_version: int,
+        attempt: int,
+        route_id: str,
+        model_string: str,
+        requested_aspect: str | None,
+        requested_output_format: str | None,
+        prompt_sha256: str,
+        expected_cost_credits: float,
+        expected_cost_usd: float,
+        now: datetime | None = None,
+    ) -> MediaIntentRow:
+        """Write the intent row BEFORE the createTask HTTP call is made.
+
+        Raises :class:`MediaIntentAlreadyExists` if this exact (identity,
+        attempt) has already been committed -- the caller must resolve the
+        existing row instead of submitting again (§8.5: "one (identity,
+        attempt) pair permits at most one paid submission ever")."""
+        moment = now if now is not None else datetime.now().astimezone()
+        try:
+            cur = self._conn.execute(
+                "INSERT INTO media_intents (theme, run_date, run_id, cluster_key, asset_slot, "
+                "language, prompt_pattern_version, attempt, route_id, model_string, "
+                "requested_aspect, requested_output_format, prompt_sha256, expected_cost_credits, "
+                "expected_cost_usd, state, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'intent', ?)",
+                (
+                    theme, run_date, run_id, cluster_key, asset_slot, language,
+                    prompt_pattern_version, attempt, route_id, model_string,
+                    requested_aspect, requested_output_format, prompt_sha256,
+                    expected_cost_credits, expected_cost_usd, _now_iso(moment),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise MediaIntentAlreadyExists(
+                f"media intent already exists for theme={theme} run_date={run_date} "
+                f"cluster_key={cluster_key} asset_slot={asset_slot} language={language} "
+                f"prompt_pattern_version={prompt_pattern_version} attempt={attempt}"
+            ) from exc
+        self._conn.commit()
+        row = self.get_media_intent(cur.lastrowid)
+        assert row is not None
+        return row
+
+    def get_media_intent(self, row_id: int) -> MediaIntentRow | None:
+        row = self._conn.execute("SELECT * FROM media_intents WHERE id=?", (row_id,)).fetchone()
+        return _row_to_media_intent(row) if row is not None else None
+
+    def find_media_intent(
+        self,
+        *,
+        theme: str,
+        run_date: str,
+        cluster_key: str,
+        asset_slot: str,
+        language: str,
+        prompt_pattern_version: int,
+        attempt: int,
+    ) -> MediaIntentRow | None:
+        row = self._conn.execute(
+            "SELECT * FROM media_intents WHERE theme=? AND run_date=? AND cluster_key=? AND "
+            "asset_slot=? AND language=? AND prompt_pattern_version=? AND attempt=?",
+            (theme, run_date, cluster_key, asset_slot, language, prompt_pattern_version, attempt),
+        ).fetchone()
+        return _row_to_media_intent(row) if row is not None else None
+
+    def set_media_task_id(self, row_id: int, task_id: str, *, now: datetime | None = None) -> None:
+        """The provider's task id is written the moment createTask returns
+        (§8.5) -- the boundary between "crash before task id" (sub-case A,
+        unreachable by query) and every later, queryable state."""
+        moment = now if now is not None else datetime.now().astimezone()
+        self._conn.execute(
+            "UPDATE media_intents SET task_id=?, state='polling', submitted_at=? WHERE id=?",
+            (task_id, _now_iso(moment), row_id),
+        )
+        self._conn.commit()
+
+    def update_media_intent(
+        self,
+        row_id: int,
+        *,
+        state: str | None = None,
+        submitted_unknown_subcase: str | None = None,
+        delivered_route_state: str | None = None,
+        delivered_model: str | None = None,
+        observed_cost_credits: float | None = None,
+        observed_cost_usd: float | None = None,
+        image_path: str | None = None,
+        checksum_sha256: str | None = None,
+        fail_reason: str | None = None,
+        terminal: bool | None = None,
+        resolved_at: datetime | None = None,
+    ) -> None:
+        """Generic field-update for a media intent row. Only the fields
+        explicitly passed (non-``None``) are written -- callers pass exactly
+        what they know at each point in the async job lifecycle (§8.13)."""
+        fields: list[str] = []
+        params: list[Any] = []
+        for column, value in (
+            ("state", state),
+            ("submitted_unknown_subcase", submitted_unknown_subcase),
+            ("delivered_route_state", delivered_route_state),
+            ("delivered_model", delivered_model),
+            ("observed_cost_credits", observed_cost_credits),
+            ("observed_cost_usd", observed_cost_usd),
+            ("image_path", image_path),
+            ("checksum_sha256", checksum_sha256),
+            ("fail_reason", fail_reason),
+        ):
+            if value is not None:
+                fields.append(f"{column}=?")
+                params.append(value)
+        if terminal is not None:
+            fields.append("terminal=?")
+            params.append(1 if terminal else 0)
+        if resolved_at is not None:
+            fields.append("resolved_at=?")
+            params.append(_now_iso(resolved_at))
+        if not fields:
+            return
+        params.append(row_id)
+        self._conn.execute(f"UPDATE media_intents SET {', '.join(fields)} WHERE id=?", params)
+        self._conn.commit()
+
+    def unresolved_media_intents(self, theme: str) -> list[MediaIntentRow]:
+        """Every intent row with no terminal state, across ALL prior runs --
+        what phase 0 of the media stage resolves by query before any new
+        submission is attempted (§8.13: "never resubmits blind")."""
+        rows = self._conn.execute(
+            "SELECT * FROM media_intents WHERE theme=? AND terminal=0 ORDER BY id ASC", (theme,)
+        ).fetchall()
+        return [_row_to_media_intent(r) for r in rows]
+
+    def media_spend_usd_for_day(self, *, theme: str, run_date: str) -> float:
+        """Sum of this calendar day's media spend across every run, for the
+        per-day cap (§8.11). Includes both confirmed observed cost and, for
+        rows still open (submitted-unknown, polling), the expected cost --
+        the worst-case assumption §8.13's reconciliation arithmetic requires."""
+        rows = self._conn.execute(
+            "SELECT state, terminal, observed_cost_usd, expected_cost_usd FROM media_intents "
+            "WHERE theme=? AND run_date=?",
+            (theme, run_date),
+        ).fetchall()
+        total = 0.0
+        for row in rows:
+            if row["terminal"] and row["observed_cost_usd"] is not None:
+                total += row["observed_cost_usd"]
+            elif row["state"] in ("polling", "submitted-unknown", "intent"):
+                total += row["expected_cost_usd"]
+        return total
+
+
+def _row_to_media_intent(row: sqlite3.Row) -> MediaIntentRow:
+    return MediaIntentRow(
+        id=row["id"],
+        theme=row["theme"],
+        run_date=row["run_date"],
+        run_id=row["run_id"],
+        cluster_key=row["cluster_key"],
+        asset_slot=row["asset_slot"],
+        language=row["language"],
+        prompt_pattern_version=row["prompt_pattern_version"],
+        attempt=row["attempt"],
+        route_id=row["route_id"],
+        model_string=row["model_string"],
+        requested_aspect=row["requested_aspect"],
+        requested_output_format=row["requested_output_format"],
+        prompt_sha256=row["prompt_sha256"],
+        expected_cost_credits=row["expected_cost_credits"],
+        expected_cost_usd=row["expected_cost_usd"],
+        task_id=row["task_id"],
+        state=row["state"],
+        submitted_unknown_subcase=row["submitted_unknown_subcase"],
+        delivered_route_state=row["delivered_route_state"],
+        delivered_model=row["delivered_model"],
+        observed_cost_credits=row["observed_cost_credits"],
+        observed_cost_usd=row["observed_cost_usd"],
+        image_path=row["image_path"],
+        checksum_sha256=row["checksum_sha256"],
+        fail_reason=row["fail_reason"],
+        created_at=row["created_at"],
+        submitted_at=row["submitted_at"],
+        resolved_at=row["resolved_at"],
+        terminal=bool(row["terminal"]),
+    )
 
 
 def _trajectory(

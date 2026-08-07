@@ -6,20 +6,51 @@
 # image generation only. Price snapshots taken 2026-08-07 from kie.ai public
 # pricing pages (credit ≈ $0.005; account balance 10,080 credits ≈ $50).
 #
-# VERIFICATION STATUS: prices verified from public pages; the exact `model`
-# strings for createTask are UNVERIFIED-PENDING-M4 — the M4 builder must
-# confirm each against docs.kie.ai before first submission and update this
-# file (that update is part of M4's definition of done).
+# VERIFICATION STATUS (M4, 2026-08-07): `model` strings verified against
+# docs.kie.ai (curled market pages directly, not the JS-rendered nav) --
+# request/response shapes below are read from documented examples AND
+# confirmed live: two real createTask + recordInfo round trips against
+# "google/nano-banana" (one plain submission, one deliberate kill-before-poll
+# + resolve-by-query on restart), 8 credits total ($0.04), both delivered a
+# real 1024x1024 PNG, "model" echoed the request in both (no substitution
+# observed -- consistent with, not proof of, the three-state rule below),
+# balance dropped by exactly 4 credits per submission and by zero on the
+# resolve-by-query call itself. Seedream/nano-banana-2 strings are corrected
+# from docs but not yet exercised against a live submission.
+# - google/nano-banana        -- exact match, docs.kie.ai/market/google/nano-banana
+#                                 request example: {"model":"google/nano-banana",
+#                                 "input":{"prompt":...,"output_format":"png",
+#                                 "aspect_ratio":"1:1"}}
+# - bytedance/seedream-v4-text-to-image -- corrected; the seed value
+#   "bytedance/seedream-4" did not exist on docs.kie.ai. Verified string is
+#   from docs.kie.ai/market/seedream/seedream-v4-text-to-image.
+# - nano-banana-2             -- corrected; no "google/" prefix and no
+#   "-pro" suffix exist on docs.kie.ai (there is no nano-banana-pro page at
+#   all). Verified string + page: docs.kie.ai/market/google/nanobanana2.
+#   Price snapshot for this route is retained from the original estimate
+#   (kie.ai's pricing page does not expose a per-model credit table); it is
+#   NOT auto-selected in this goal (standard tier) so the estimate is
+#   directional only, not spend-bearing.
 #
-# Router facts that bind M4 (from W8-3 inspection + docs):
+# Router facts that bind M4 (from W8-3 inspection + docs, confirmed live):
 # - createTask: POST https://api.kie.ai/api/v1/jobs/createTask
+#   body: {"model": <string>, "input": {...}} -- "callBackUrl" is optional
+#   and omitted (polling baseline, no webhook receiver, §8.13).
+#   response: {"code":200,"msg":"success","data":{"taskId":"..."}}
 # - status:     GET  https://api.kie.ai/api/v1/jobs/recordInfo?taskId=...
+#   response: {"code":200,"msg":"success","data":{"taskId","model","state"
+#   (docs example shows "success"; "waiting"/"fail" inferred from
+#   failCode/failMsg/progress fields),"resultJson" (JSON string holding
+#   "resultUrls":[...]),"failCode","failMsg","creditsConsumed",...}}.
+#   The docs example shows "model" echoing the request -- it is NOT treated
+#   as a trustworthy identity signal on its own; §5.6's three-state
+#   inference still governs (identity-reported only when this field
+#   diverges from the requested model_string; substituted-unknown on any
+#   other divergence signal; assumed-as-requested otherwise).
+# - credit balance: GET https://api.kie.ai/api/v1/chat/credit ->
+#   {"code":200,"msg":"success","data": <int credits>}.
 # - NO idempotency key exists on task creation (§8.5: the write-ahead spend
 #   ledger row IS the idempotency mechanism; resolve-by-query on restart).
-# - Task status does NOT name the rendering model -> §5.6 three-state
-#   inference rule (identity-reported / substituted-unknown /
-#   assumed-as-requested); Kie silently falls back on content-review
-#   triggers, so every delivered asset carries the inference state.
 # - People-free composition stays the injected default (R2-M18).
 
 meta:
@@ -34,26 +65,27 @@ routes:
   - route_id: img-draft-nano-banana
     tier: draft
     display: "Nano Banana (Gemini 2.5 Flash Image)"
-    model_string: "google/nano-banana"        # UNVERIFIED-PENDING-M4
+    model_string: "google/nano-banana"        # VERIFIED 2026-08-07 vs docs.kie.ai/market/google/nano-banana
     price_credits: 4
     price_usd: 0.02
-    notes: "Default draft route — cheapest adequate; strong text rendering claims"
+    input_params: {prompt: string, output_format: "png", aspect_ratio: "1:1"}
+    notes: "Default draft route — cheapest adequate; strong text rendering claims (never exercised — no text is composed into the prompt this milestone)"
 
   - route_id: img-draft-seedream
     tier: draft
-    display: "Seedream 4.0"
-    model_string: "bytedance/seedream-4"      # UNVERIFIED-PENDING-M4
+    display: "Seedream 4.0 (text-to-image)"
+    model_string: "bytedance/seedream-v4-text-to-image"  # CORRECTED 2026-08-07: "bytedance/seedream-4" does not exist on docs.kie.ai; verified vs docs.kie.ai/market/seedream/seedream-v4-text-to-image
     price_credits: 3.5
     price_usd: 0.0175
-    notes: "Fallback draft route (registered fallback needs its own param conformance check, §5.7)"
+    notes: "Fallback draft route (registered fallback needs its own param conformance check, §5.7) — param shape not yet exercised against a live submission this milestone"
 
   - route_id: img-standard-nano-banana-pro
     tier: standard
-    display: "Nano Banana Pro (Gemini 3 Pro Image)"
-    model_string: "google/nano-banana-pro"    # UNVERIFIED-PENDING-M4
+    display: "Nano Banana 2"
+    model_string: "nano-banana-2"    # CORRECTED 2026-08-07: no "google/" prefix, no "-pro" suffix — no nano-banana-pro page exists on docs.kie.ai; verified vs docs.kie.ai/market/google/nanobanana2
     price_credits: 24
     price_usd: 0.12
-    notes: "NOT auto-selected in this goal; draft tier only for the M5 test run"
+    notes: "Price is a directional carry-over, NOT re-verified (docs.kie.ai's model pages carry no per-model credit table) — NOT auto-selected in this goal; draft tier only for the M5 test run; tier_ceiling below blocks selection entirely regardless"
 
 defaults:
   draft_route: img-draft-nano-banana

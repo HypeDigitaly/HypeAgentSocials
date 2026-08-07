@@ -206,3 +206,22 @@ generation:
     model: ""
     key_path: ""
     max_tokens: 400
+
+  # M4 (GOAL_ROADMAP.md) — Kie.ai draft-tier image generation. Both caps
+  # are checked at every submission (§8.11); whichever trips first stops
+  # that submission, and count-capped/budget-capped are distinct statuses.
+  # dry_run stays false here deliberately: the goal's finish line is a real
+  # (bounded) spend test, and this milestone's own real-submission
+  # verification requires it off. A theme wanting a zero-spend rehearsal
+  # sets dry_run: true, which still produces the full plan and forecast.
+  media:
+    dry_run: false
+    per_run_usd_cap: 0.20
+    per_run_count_cap: 4
+    per_day_usd_cap: 0.40
+    poll_interval_seconds: 7
+    poll_timeout_seconds: 180
+    resolution_window_days: 14
+    aspect_ratio: "1:1"
+    output_format: "png"
+    # key_path left empty -> falls back to secrets/kie.key (repo-root relative)
