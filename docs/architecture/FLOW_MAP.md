@@ -151,6 +151,17 @@ logs/artifacts/raw/<run_id>/virlo_media/   downloaded creatives (30-day retentio
 
 ## 7. Status
 
-W8-10 built and committed (`f4b2943`), 515/515 offline tests green. Operator has
-authorized the live confirmation run (post_mix 1/1/1, ~$1.50–2.50) — next step, results
-will be appended to the run log and judged against the audit checklist.
+W8-10 built and committed (`f4b2943`), 515/515 offline tests green. **Confirmation run
+`2026-08-07_fa51` completed and analyzed** (exit success, 23m, $1.32 LLM + $0.24 media,
+spend reconciled exactly): copy voice, post_mix 1/1/1, real n8n/Apify logos, a photoreal
+UGC hero, and all new gates confirmed live — **2/6 images shippable vs 0/10 in e4d8**.
+Four seams found and queued as the W8-11 fix round (full record: GOAL_ROADMAP.md → "W8-10
+CONFIRMATION RUN RESULTS"):
+1. same-day fetch idempotency leaves no virlo_corpus for the run → N-A skipped → Phase 8
+   dynamic modes never exercised (fell back to editorial);
+2. N-C slide bodies (29–37 words) vs N-D's 28-word cap are mutually unsatisfiable → all
+   3 IG carousels degraded to fallback heroes;
+3. compose_prompt fallback bypasses the claim gate on image text (unqualified '35,095'
+   rendered) and N-E skips fallback images entirely (4/6 unreviewed);
+4. copywriter invents speaker personas ("I'm Marcus/Radka") — speaker must be pinned in
+   config. Also: N-C/N-F token budgets too small (every first attempt truncated).

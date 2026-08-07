@@ -237,7 +237,74 @@ The goal's completion criterion is the **test run**, and the test run defines th
   N-F critic diffs visible. Then report before/after vs e4d8 to operator; decide
   whether to keep post_mix on; tick W8-10 checkbox; update FLOW_MAP §7 status +
   republish artifact if flow facts changed.
-- [ ] **W8-10 — DONE when the confirmation run is analyzed and reported.**
+- [x] **W8-10 — confirmation run `2026-08-07_fa51` COMPLETED + fully analyzed 2026-08-07
+      (~17:35).** Verdict: partial confirmation — the W8-10 machinery that ran is a step
+      change up from e4d8, but a same-day idempotency gap kept Phase 8 out of the loop
+      entirely. Results record below; fix round W8-11 proposed to operator.
+
+### W8-10 CONFIRMATION RUN RESULTS (`2026-08-07_fa51`, exit success, 23m, $1.32 LLM + $0.24 media)
+
+**What PASSED (before/after vs e4d8):**
+- Copy voice: night-and-day. All 6 assets gated-pass attempt 1; founder first-person,
+  short rhythms, concrete verbatim prompts as the "usable artifact", zero
+  "creators are reporting", zero slop-tell regressions. N-F critic rewrote all 3
+  LinkedIn assets (diffs traced seq 47/75/103).
+- post_mix 1/1/1 EXACT: 3bc9=value_only (zero brand mention ✓ handle+disclosure ✓),
+  948c=playbook (comment-CTA ✓), bcba=promotional (brand+URL, promo not first ✓).
+- Real third-party logos RENDERED AND RECOGNIZABLE where crafted prompts ran:
+  n8n + Apify on 3bc9_linkedin (QA pass 6/6 bools). bcba_linkedin delivered a
+  PHOTOREAL UGC hand-holding-phone shot (the e4d8 audit's #1 missing style) — QA pass.
+- Zero scaffolding/font-name/hex/quote leakage on both crafted images. Spend
+  reconciliation exact (ledger==balance delta, media $0.24, LLM $1.32 ≤ caps).
+- Claim gate + N-D validation + fail-closed degradation all fired correctly as designed.
+
+**What FAILED (the W8-11 fix list, priority order):**
+1. **Same-day idempotency starved the whole Phase 8 path**: every source fetch was
+   "already captured today — skip" (§8.5) → no virlo_corpus.yaml/media manifest
+   materialized for THIS run → N-A skipped → no analyzed_items/visual_profile → all
+   modes fell back to editorial register + style-guide rotation. Dynamic inspiration
+   NEVER EXERCISED live. Fix: on fetch-skip, re-materialize corpus+manifest from the
+   day's captured store/raw payloads so analysis always has input.
+2. **N-C×N-D contradiction killed ALL 3 IG carousels**: copywriter slide bodies came
+   out 29–37 words; N-D's 28-word rendered-body cap + exact-text-complete requirement
+   are then mutually unsatisfiable → all 3 crafted sets invalid → whole sets degraded
+   to compose_prompt heroes (no slides generated at all). Fix: enforce ≤28-word slide
+   bodies at N-C generation+validation time; exempt the monospace prompt-quote slide
+   from the cap (it legitimately carries the verbatim prompt).
+3. **compose_prompt fallback bypasses claim gate on image text**: gate correctly
+   blocked N-D's '35,095' (missing required qualification) — then the fallback prompt
+   rendered '35,095 AI-handled answers. Zero spreadsheets.' unqualified anyway
+   (948c_linkedin hero, generated + delivered). Fix: run fallback prompts through the
+   same claim gate; gate-fail ⇒ held, never submit.
+4. **QA skip on fallback images = 4/6 images unreviewed**: "no crafted on-image text"
+   skips N-E entirely — exactly the riskiest images. 948c_instagram hero is e4d8-class
+   garbage (gibberish headlines, literal 'EYEBROW TAG' pills rendered, Lorem ipsum,
+   wrong CTA keyword 'GROWTH' vs copy's 'PLAYBOOK', random Slack/GDrive/Mailchimp
+   logos); bcba_instagram hero is off-topic generic SaaS filler; both shipped to pack
+   unreviewed. Fix: N-E always runs (subject relevance/logos/composition rubric works
+   without exact-text list); fallback carousel prompts must not describe a whole
+   carousel in one image (model renders a 2x2 collage).
+5. **Fabricated speaker personas**: "I'm Marcus." / "I'm Radka." / "Pavel Čermák
+   here" — NO name exists anywhere in copy_requests; the model invented all three
+   identities (one dangerously close to the real operator's name) and attached
+   first-person experience claims to them. Fix: pin the speaker in config (real,
+   operator-approved persona per destination) and hard-fail any other proper-name
+   self-introduction.
+6. **N-F critic failed on all 3 IG assets** (2× truncated even at 4000-token retry,
+   1× malformed JSON) → originals kept (fail-safe worked, but IG copy went
+   un-critiqued). Fix: raise N-F budget for carousel assets (base 4000/retry 8000) or
+   make the critic return per-field diffs instead of the full rewritten asset.
+7. Minor: N-C base max_tokens 4000 truncated on ALL 6 first attempts (every asset
+   needed the corrective retry — doubles copy latency+cost; raise base to 6000);
+   R1 freshness window skipped 0 of 566 news rows (window keys on dates that are all
+   recent — semantics need a second look); stale '1.91:1' aspect string still inside
+   compose_prompt fallback text (theme is 16:9 now); AI-rendered Claude logo on
+   bcba_linkedin is orange-ish but NOT the real Claude mark (QA passed it —
+   logo-fidelity rubric too lenient; n8n/Apify rendered fine).
+
+**Scoreboard: 2/6 images shippable (both crafted+QA'd LinkedIn heroes — vs 0/10 in
+e4d8), 6/6 copy assets shippable pending persona fix. post_mix stays ON (worked
+exactly).**
 
 ## Standing constraints that bind every milestone (do not re-derive)
 
