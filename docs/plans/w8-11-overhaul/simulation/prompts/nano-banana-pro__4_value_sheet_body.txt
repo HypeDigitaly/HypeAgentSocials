@@ -1,0 +1,10 @@
+A dark editorial reference card, ground hex #1E1B2E, flat, no gradients, no glow. Top-left kicker in teal (hex #00A39A), small caps: 'KATEGORIE 02 · AUTOMATIZACE'. Top-right counter in white: '4/10'. Below, filling the card, a dense numbered list set in a warm off-white serif (hex #EDEAE3), small text size, generous line spacing, left-aligned, one entry per line pair:
+1. Zapier — propojí formuláře, tabulky a e-maily bez psaní kódu.
+2. Make — vizuální scénáře pro opakované procesy a přenos dat.
+3. n8n — automatizace na vlastním serveru, plná kontrola nad daty.
+4. Claude — příprava podkladů, souhrnů a odpovědí v češtině.
+5. Notion AI — zápisky ze schůzek převede na úkoly během vteřin.
+6. Airtable — databáze klientů propojená s formuláři a reporty.
+7. Calendly — plánování schůzek bez zbytečných e-mailů tam a zpět.
+8. Loom — krátká videa místo dlouhých porad a vysvětlování.
+A thin indigo rule (hex #302B87) under the kicker. No other decoration, no icons, no images. Render all Czech text EXACTLY as written, including every diacritic mark (á, č, ě, í, ř, š, ů, ý, ž).
