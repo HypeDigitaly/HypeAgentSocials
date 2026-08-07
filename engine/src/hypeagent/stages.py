@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from hypeagent import brand_truth, copy_gen, media_gen, packaging, spin as spin_module
+from hypeagent import brand_truth, copy_gen, media_gen, packaging, resume_state as resume_state_module, spin as spin_module
 from hypeagent.collectors import google_news, hackernews, huggingface, producthunt, virlo
 from hypeagent.collectors.base import CollectContext, Fetcher, UrllibFetcher, to_normalized_signal
 from hypeagent.config_load import (
@@ -107,15 +107,25 @@ class StageResult:
 StageFn = Callable[[RunContext, TraceWriter], StageResult]
 
 
-def stage_theme_load(ctx: RunContext, trace: TraceWriter) -> StageResult:
-    """Fail-closed config/theme load, extended to load the theme's research
-    block (§10.2), the special-category source deny-list and lexicon
-    (§2.6), and to run the retention expiry job at run start."""
+def _load_theme_and_config(ctx: RunContext) -> None:
+    """Shared, fail-closed config load: theme + research + generation +
+    the special-category deny-list/lexicon (§2.6, §10.2). Used by both the
+    ``theme_load`` stage (a normal run) and ``prepare_resume_context``
+    (``--resume``, which does not re-run ``theme_load`` as a canonical
+    stage but still needs these same objects on ``ctx`` to re-enter
+    copy/media/packaging/digest)."""
     ctx.theme_config = load_theme_config(ctx.config_dir)
     ctx.research = load_theme_research_config(ctx.config_dir, ctx.theme_name)
     ctx.generation = load_theme_generation_config(ctx.config_dir, ctx.theme_name)
     ctx.deny_list = load_source_deny_list(ctx.config_dir / "special_category_source_deny_list.yaml")
     ctx.lexicon = load_special_category_lexicon(ctx.config_dir / "special_category_lexicon.yaml")
+
+
+def stage_theme_load(ctx: RunContext, trace: TraceWriter) -> StageResult:
+    """Fail-closed config/theme load, extended to load the theme's research
+    block (§10.2), the special-category source deny-list and lexicon
+    (§2.6), and to run the retention expiry job at run start."""
+    _load_theme_and_config(ctx)
 
     secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
     ctx.store = Store.open(ctx.logs_dir, secrets_dir)
@@ -437,6 +447,25 @@ def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
 
     ctx.extra["spin_results"] = spin_results
     ctx.extra["cs_holds"] = cs_holds
+
+    # Persist everything ``--resume`` will need to re-enter copy/media/
+    # packaging/digest without re-running collection/ranking/brand_truth/
+    # spin (module docstring in ``resume_state.py``). Written on every run,
+    # unconditionally -- not gated on whether any asset ends up held --
+    # so any run_id can later be resumed.
+    run_dir = ctx.logs_dir / "runs" / ctx.run_id
+    resume_state_module.write_resume_state(
+        run_dir,
+        resume_state_module.ResumeState(
+            languages=list(ctx.research.languages),
+            ranking_result=ranking_result,
+            brand_truth_panel=panel,
+            spin_results=spin_results,
+            cs_holds=cs_holds,
+            degraded_sources=list(ctx.extra.get("degraded_sources", [])),
+        ),
+    )
+
     return StageResult(
         outcome="ok",
         items_in=len(en_scorecards) + len(cs_holds),
@@ -698,8 +727,19 @@ CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
 )
 
 
-def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
-    """Run all canonical stages in order.
+# The subset re-entered by ``python -m hypeagent --resume <run_id>``
+# (main.py): collection/ranking/brand_truth/spin are never re-run on
+# resume -- their outputs are read back from ``resume_state.yaml``
+# (persisted once by ``stage_spin`` on every ordinary run) instead of being
+# re-derived, so a resume can never re-hit cross-day dedupe or silently pick
+# up a different claim-ledger snapshot than the original run gated against.
+RESUME_STAGE_NAMES: tuple[str, ...] = ("copy", "media", "packaging", "digest")
+
+
+def _run_stage_list(ctx: RunContext, trace: TraceWriter, stage_list: tuple[tuple[str, StageFn], ...]) -> str:
+    """Run ``stage_list`` in order, exactly as ``run_pipeline`` always has;
+    factored out so ``resume_pipeline`` gets identical per-stage trace and
+    exit-class semantics over its own (smaller) stage subset.
 
     Returns the exit-class string. A degraded ``collection`` stage maps to
     ``partial-success — degraded sources`` (§8.8); a degrade anywhere else
@@ -712,7 +752,7 @@ def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
     """
     degraded = False
     degraded_class: str | None = None
-    for stage_name, fn in CANONICAL_STAGES:
+    for stage_name, fn in stage_list:
         trace.stage_start(stage_name)
         try:
             result = fn(ctx, trace)
@@ -747,3 +787,38 @@ def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
     if degraded:
         return degraded_class or ExitClass.COMPLETED_DEGRADED.value
     return ExitClass.SUCCESS.value
+
+
+def run_pipeline(ctx: RunContext, trace: TraceWriter) -> str:
+    """Run all canonical stages in order. See :func:`_run_stage_list` for
+    the exit-class mapping and error/crash semantics."""
+    return _run_stage_list(ctx, trace, CANONICAL_STAGES)
+
+
+def prepare_resume_context(ctx: RunContext) -> None:
+    """Load config + open the store for ``--resume`` (main.py), without
+    repeating ``theme_load``'s own trace events or its run-start retention-
+    expiry job -- both already ran once for this run_id at its original
+    invocation. Resume only needs the config objects and a live store handle
+    to re-enter copy/media/packaging/digest."""
+    _load_theme_and_config(ctx)
+    secrets_dir = ctx.secrets_dir or (ctx.config_dir.parent / "secrets")
+    ctx.store = Store.open(ctx.logs_dir, secrets_dir)
+
+
+def resume_pipeline(ctx: RunContext, trace: TraceWriter, resume_state: resume_state_module.ResumeState) -> str:
+    """``python -m hypeagent --resume <run_id>``'s stage subset (main.py):
+    re-enters ONLY copy -> media -> packaging -> digest, against the
+    ranking/brand-truth/spin output ``resume_state`` carries in from
+    ``resume_state.yaml`` (never re-derived). Collection, ranking,
+    brand_truth and spin are not re-run this invocation; per-stage trace
+    and exit-class semantics are otherwise identical to a normal run's
+    (shared :func:`_run_stage_list`)."""
+    prepare_resume_context(ctx)
+    ctx.extra["ranking_result"] = resume_state.ranking_result
+    ctx.extra["brand_truth_panel"] = resume_state.brand_truth_panel
+    ctx.extra["spin_results"] = resume_state.spin_results
+    ctx.extra["cs_holds"] = resume_state.cs_holds
+    ctx.extra["degraded_sources"] = resume_state.degraded_sources
+    resume_stages = tuple((name, fn) for name, fn in CANONICAL_STAGES if name in RESUME_STAGE_NAMES)
+    return _run_stage_list(ctx, trace, resume_stages)

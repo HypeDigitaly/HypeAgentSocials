@@ -94,12 +94,16 @@ class TraceWriter:
     immediately, so a crash leaves a valid, truncated trace.
     """
 
-    def __init__(self, path: Path, run_id: str) -> None:
+    def __init__(self, path: Path, run_id: str, *, initial_seq: int = 0) -> None:
+        """``initial_seq`` lets ``--resume`` continue an existing
+        ``trace.jsonl``'s sequence numbering instead of restarting at 1 —
+        see :func:`last_seq_in_trace`, which computes it from the file this
+        writer is about to append to."""
         self.path = Path(path)
         self.run_id = run_id
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
-        self._seq = 0
+        self._seq = initial_seq
         self._lock = threading.Lock()
         self._stage_starts: dict[str, float] = {}
 
@@ -327,3 +331,40 @@ class TraceWriter:
     def run_end(self, exit_class: str, *, totals: dict[str, Any]) -> int:
         detail = {"exit_class": exit_class, "totals": totals}
         return self._write_event("run", "run_end", detail)
+
+    def resume_marker(self, *, resumed_at_seq: int) -> int:
+        """``main.py``'s ``--resume`` boundary marker: a ``decision`` event
+        whose detail is exactly ``{"resume": true, "resumed_at_seq": N}``, so
+        a reader of ``trace.jsonl`` can locate where a resumed invocation's
+        events begin without guessing from timestamps. Written once, as the
+        first event of every resumed invocation, even when the trace being
+        appended to already has its own ``run_end`` (a resume proceeds
+        regardless; the renderer keeps both, and the trace shows the resume
+        strictly after the original close)."""
+        detail: dict[str, Any] = {"resume": True, "resumed_at_seq": resumed_at_seq}
+        return self._write_event("run", "decision", detail)
+
+
+def last_seq_in_trace(path: Path) -> int:
+    """Best-effort max ``seq`` found in an existing (possibly truncated)
+    ``trace.jsonl`` — resume's sequence numbering continues from here.
+    Malformed/truncated trailing lines are skipped exactly as
+    ``render_trace.load_events`` skips them; returns ``0`` for a missing,
+    empty, or fully-malformed file (a fresh writer would start at seq 1)."""
+    path = Path(path)
+    if not path.exists():
+        return 0
+    max_seq = 0
+    with open(path, "r", encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            seq = record.get("seq")
+            if isinstance(seq, int) and seq > max_seq:
+                max_seq = seq
+    return max_seq

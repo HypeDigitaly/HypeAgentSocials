@@ -16,11 +16,19 @@ from datetime import datetime
 from pathlib import Path
 
 from hypeagent import __version__ as ENGINE_VERSION
-from hypeagent import render_trace, run_identity, run_ledger, stages
+from hypeagent import render_trace, resume_state as resume_state_module, run_identity, run_ledger, stages
 from hypeagent.config_load import ConfigError
 from hypeagent.exit_codes import EXIT_CODE_MAP, ExitClass
 from hypeagent.store import Store
-from hypeagent.trace import TraceWriter
+from hypeagent.trace import TraceWriter, last_seq_in_trace
+
+# ``--resume``'s own pre-flight refusal codes (RUN_TRACE_SPEC's nine exit
+# classes are the *pipeline's* outcome taxonomy, §8.8 -- these two conditions
+# are refused before any pipeline stage runs at all, so they get their own
+# small, distinct codes rather than being folded into that enum). A held
+# run-lock reuses ``skipped-overlap``'s own mapped code (75): it is the same
+# condition (another live run holds the lock) under a different entrypoint.
+EXIT_RESUME_TARGET_NOT_FOUND = 42
 
 
 def _render_mode(argv: Sequence[str]) -> int:
@@ -59,6 +67,135 @@ def _delete_key_mode(argv: Sequence[str]) -> int:
     for path in report.packs_rewritten:
         print(f"  rewrote pack file: {path}")
     return 0
+
+
+def _resume_mode(argv: Sequence[str]) -> int:
+    """``python -m hypeagent --resume <run_id>``.
+
+    Re-enters ONLY copy/media/packaging/digest for an existing run (see
+    ``stages.resume_pipeline`` / ``resume_state.py`` module docstrings for
+    why collection/ranking/brand_truth/spin are never re-run here). Refuses,
+    each with a distinct exit code and no side effects on the target run's
+    own trace/ledger, when:
+
+    - ``<run_id>`` was not given at all (usage error, exit 2 — same
+      convention as ``--render``/``--delete-key``).
+    - ``logs/runs/<run_id>/`` does not exist, or has no ``trace.jsonl``
+      (``EXIT_RESUME_TARGET_NOT_FOUND``).
+    - the run never reached ``stage_spin`` (no ``resume_state.yaml`` on
+      file — nothing to complete; also ``EXIT_RESUME_TARGET_NOT_FOUND``,
+      since from the operator's perspective both are "not a resumable
+      run_id").
+    - the run-lock is already held by a live run (reuses
+      ``skipped-overlap``'s mapped exit code; a resume must never write
+      into a trace another process is actively appending to).
+
+    Trace sequence numbering continues monotonically from the existing
+    file's last ``seq`` (crash-truncation means that may not be a
+    ``run_end`` line at all — resume proceeds regardless and marks its own
+    start with a ``{"resume": true, "resumed_at_seq": N}`` decision event).
+    The run ledger is append-only (``run_ledger.py``): a successful or
+    failed resume adds a NEW row referencing the same ``run_id``, with its
+    own ``started_at``/``ended_at`` — the same convention every other
+    ledger consumer in this engine already has to handle for "more than one
+    line can name the same run_id" (e.g. a resumed run's ledger history is
+    simply every line whose ``run_id`` matches, in order).
+    """
+    if not argv:
+        print("usage: python -m hypeagent --resume <run_id>", file=sys.stderr)
+        return 2
+    run_id = argv[0]
+
+    repo_root = Path.cwd()
+    config_dir = repo_root / "config"
+    logs_dir = repo_root / "logs"
+    lock_path = logs_dir / "run.lock"
+    ledger_path = logs_dir / "run_ledger.jsonl"
+    run_dir = logs_dir / "runs" / run_id
+    trace_path = run_dir / "trace.jsonl"
+
+    if not run_dir.is_dir() or not trace_path.exists():
+        print(
+            f"cannot resume {run_id!r}: no run directory with a trace.jsonl found at {trace_path}",
+            file=sys.stderr,
+        )
+        return EXIT_RESUME_TARGET_NOT_FOUND
+
+    resume_state = resume_state_module.load_resume_state(run_dir)
+    if resume_state is None:
+        print(
+            f"cannot resume {run_id!r}: no resume state on file at "
+            f"{run_dir / resume_state_module.RESUME_STATE_FILENAME} "
+            "(the run never reached the spin stage, so there is nothing to complete)",
+            file=sys.stderr,
+        )
+        return EXIT_RESUME_TARGET_NOT_FOUND
+
+    lock = run_identity.RunLock(lock_path)
+    try:
+        lock.acquire()
+    except run_identity.RunLockHeld:
+        print(f"cannot resume {run_id!r}: run-lock already held by a live run", file=sys.stderr)
+        return EXIT_CODE_MAP[ExitClass.SKIPPED_OVERLAP]
+
+    started_at = datetime.now().astimezone()
+    exit_class = ExitClass.SUCCESS
+    crashed = False
+    ctx: stages.RunContext | None = None
+    ended_at = started_at
+    resumed_at_seq = last_seq_in_trace(trace_path)
+    tw = TraceWriter(trace_path, run_id, initial_seq=resumed_at_seq)
+    try:
+        tw.resume_marker(resumed_at_seq=resumed_at_seq)
+        ctx = stages.RunContext(
+            run_id=run_id, config_dir=config_dir, logs_dir=logs_dir, theme_name=stages.DEFAULT_THEME_NAME
+        )
+        try:
+            exit_class_value = stages.resume_pipeline(ctx, tw, resume_state)
+            exit_class = ExitClass(exit_class_value)
+        except ConfigError:
+            exit_class = ExitClass.POLICY_STOP
+            crashed = True
+        except Exception:
+            exit_class = ExitClass.HARD_FAILURE
+            crashed = True
+
+        ended_at = datetime.now().astimezone()
+        if not crashed:
+            duration_ms = int((ended_at - started_at).total_seconds() * 1000)
+            tw.run_end(
+                exit_class.value,
+                totals={
+                    "duration_ms": duration_ms,
+                    "api_calls_per_platform": {},
+                    "spend_per_wallet": {},
+                    "items_per_stage": {},
+                    "degrades_count": 0,
+                    "resume": True,
+                },
+            )
+    finally:
+        if ctx is not None and ctx.store is not None:
+            ctx.store.close()
+        tw.close()
+        lock.release()
+
+    render_trace.render(trace_path)
+
+    latest_path = logs_dir / "latest.txt"
+    latest_path.write_text(str(run_dir), encoding="utf-8")
+
+    run_ledger.append_ledger_entry(
+        ledger_path,
+        run_id=run_id,
+        started_at=started_at,
+        ended_at=ended_at,
+        exit_class=exit_class.value,
+        trace_path=trace_path,
+        resume=True,
+    )
+
+    return EXIT_CODE_MAP[exit_class]
 
 
 def _write_skipped_overlap(
@@ -104,6 +241,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args and args[0] == "--delete-key":
         return _delete_key_mode(args)
+
+    if args and args[0] == "--resume":
+        return _resume_mode(args[1:])
 
     repo_root = Path.cwd()
     config_dir = repo_root / "config"

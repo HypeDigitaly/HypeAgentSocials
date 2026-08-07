@@ -21,15 +21,21 @@ goal; a fixture test proves only the request shape.
 **Resolved ambiguity, recorded here rather than re-litigated at every call
 site:** GOAL_ROADMAP.md's M3(c) text says "re-running the same run-date
 resumes and picks up responses." This engine mints a brand-new ``run_id``
-(and therefore a brand-new ``logs/runs/<run_id>/`` directory) on every
-process invocation (``run_identity.new_run_identity()`` in ``main.py``) —
-there is no ``--resume`` flag in this milestone. The resumable unit this
-code actually implements is therefore "the same run identity, invoked
-again" (exactly the pattern the rest of this codebase's own idempotency
-tests already use, e.g. ``test_phase1_pipeline.py``'s explicit-``run_id``
-reuse) rather than "the same calendar date, any run_id." A true
-cross-process resume-by-date would need a CLI resume flag, which is not
-requested elsewhere in the roadmap and is out of scope here.
+(and therefore a brand-new ``logs/runs/<run_id>/`` directory) on every plain
+process invocation (``run_identity.new_run_identity()`` in ``main.py``), so
+the resumable unit this module's own logic implements is "the same run
+identity, invoked again" (exactly the pattern the rest of this codebase's
+own idempotency tests already use, e.g. ``test_phase1_pipeline.py``'s
+explicit-``run_id`` reuse) rather than "the same calendar date, any
+run_id." ``python -m hypeagent --resume <run_id>`` (``main.py``,
+``stages.resume_pipeline``) is the explicit-act CLI surface for exactly
+this same-run-identity resumption — it re-enters ``copy`` (this module)
+plus ``media``/``packaging``/``digest`` without re-running collection,
+ranking, brand_truth or spin, reading their prior output back from
+``resume_state.yaml`` instead. A true resume-by-calendar-date across a
+*different* run_id (picking up yesterday's held assets from a brand-new
+run) is still out of scope: that would re-enter ranking's cross-day dedupe
+and immediately suppress everything as "generated previously" (§2.8a).
 """
 
 from __future__ import annotations
