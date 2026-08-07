@@ -193,6 +193,52 @@ The goal's completion criterion is the **test run**, and the test run defines th
       campaign is NOT done at "tests pass" — it is done when the flow has been re-judged
       against its results.
 
+## CAMPAIGN W8-10 — output-quality deep audit → rebuild (2026-08-07; plan of record:
+## ~/.claude/plans/recursive-stargazing-sunrise.md, superseded W8-9 content in same file)
+
+### W8-10 STATUS SNAPSHOT (2026-08-07 ~17:11, pre-compaction — read this first after /compact)
+- Three-lens audit of run e4d8 DONE (UX/UI: 0/10 shippable, 12 systemic defects;
+  copywriter: nativeness 3-4/10, 5 smoking guns in our own prompts; marketer:
+  per-post verdicts + post-mix strategy + code seams). Virlo inspiration-fidelity
+  trace DONE: style-transfer fidelity was ~0% (winners: 96% photoreal, 92% sticker
+  text, 71% real logos, 50% people; we generated 100% editorial cards). All findings
+  + full build spec live in the plan file.
+- **BUILD COMPLETE, COMMITTED `f4b2943`** (515/515 tests, secret-scanned): N-C founder
+  voice (12 countable rules, exemplars injected, temp 0.9, lang pinned en), N-F
+  humanness critic (blind editor, rewrite re-enters claim gate), N-D two-section
+  prompts + image_brief-on-carousel fix + real-logo rule + relevance rule + archetype
+  rotation, N-E art-director QA (relevance/logos/composition/series vs cover,
+  mismatches⇒never-pass, $0 pre-spend leak checks), Phase 8 dynamic inspiration
+  (virlo_media_manifest join, views-ordered+thumbnail-quota image selection, labeled
+  images, analyzed_items per-creative records w/ summary+consists_of, deterministic
+  visual_profile w/ recommended_generation_mode, photographic_ugc register, 8
+  generation modes, editorial register NO LONGER hardcoded), post_mix
+  (value_only/playbook/promotional, promo-never-first; value_only = zero brand
+  grounding but @handle+disclosure kept), R1 freshness 14d, R2 ranking→analysis
+  reorder (winning themes only), R3 quantile bands, R4 norm polish, LinkedIn aspect
+  16:9. Person policy: synthetic non-identifiable people ALLOWED, identifiable/
+  celebrity BANNED.
+- FLOW_MAP.md rebuilt to W8-10 + artifact republished same URL (`d0178ad`). STANDING
+  PRD RULE (memory flow-map-artifact-always-current.md): every flow amendment ⇒
+  FLOW_MAP update + artifact republish same URL, same cycle.
+- **IN FLIGHT RIGHT NOW: live confirmation run `2026-08-07_fa51`** (operator-authorized
+  "PROCEED WITH THE FULL TEST RUN AFTER EVERYTHING LANDS"; post_mix 1/1/1 enabled in
+  theme yaml, commit `d0178ad`; caps $2 LLM/$3 img/$6 day unchanged; expected
+  ~$1.50-2.50, ~12-20 min; background shell task). At snapshot time it was in the
+  copy stage making OpenRouter calls.
+- **ON RUN COMPLETION (the standing next steps): analyze `2026-08-07_fa51` fully** —
+  process_summary.md, trace, spend reconciliation (delta events must sum==ledger==
+  balance move), VIEW every generated image, judge against the audit checklist: real
+  logos present+undistorted, photoreal/dynamic modes actually used (NOT all editorial
+  cards), zero scaffolding/token/quote leakage, series consistency, copy passes
+  slop-regex + voice rules, one ask per asset, post-mix distribution respected
+  (1 value-only w/ no brand mention, 1 playbook w/ comment-CTA, 1 promotional),
+  carousels 6-10 slides w/ end cards (numbered promises fulfilled), 100% QA coverage,
+  N-F critic diffs visible. Then report before/after vs e4d8 to operator; decide
+  whether to keep post_mix on; tick W8-10 checkbox; update FLOW_MAP §7 status +
+  republish artifact if flow facts changed.
+- [ ] **W8-10 — DONE when the confirmation run is analyzed and reported.**
+
 ## Standing constraints that bind every milestone (do not re-derive)
 
 - Secrets: API_KEYS.txt is untracked, never committed, never logged; keys never in prompts.
