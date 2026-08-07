@@ -46,10 +46,28 @@ VIRAL_PLAYBOOK_FILENAME = "viral_playbook.yaml"
 # confidence, top items by views" — the corpus's own ``videos``/
 # ``slideshows`` lists are already views-sorted by
 # ``collectors.virlo.build_virlo_corpus``, so slicing here is enough).
-MAX_THEMES_IN_PROMPT = 8
-MAX_VIDEOS_IN_PROMPT = 12
-MAX_SLIDESHOWS_IN_PROMPT = 6
-MAX_VIRAL_TACTICS_IN_PROMPT = 10
+#
+# W8-9 (live-run token-starvation fix): a live run sent a ~70k-token N-A
+# prompt, which blew the (then-1500) completion budget on the corrective
+# retry alone and wasted real money re-sending it. These caps (fewer items,
+# top themes only) plus :func:`_trim_prompt_item` (caption-length trimming
+# below) are chosen to keep the assembled prompt comfortably under ~30k
+# tokens for a typically-sized corpus -- this is a deterministic, traceable
+# input-size cap, not a token counter (the engine has no tokenizer
+# dependency; stdlib+pyyaml only).
+MAX_THEMES_IN_PROMPT = 5
+MAX_VIDEOS_IN_PROMPT = 6
+MAX_SLIDESHOWS_IN_PROMPT = 4
+MAX_VIRAL_TACTICS_IN_PROMPT = 8
+MAX_PANEL_TEXTS_PER_SLIDESHOW = 6
+PROMPT_CAPTION_TRIM_CHARS = 300
+# Heavy/irrelevant-to-the-analyst fields dropped from the PROMPT copy of
+# each video/slideshow item (still present in full in the on-disk
+# ``virlo_corpus.yaml`` research artifact — this trims the prompt only):
+# long CDN URLs and a hashed handle carry no pattern-analysis value and cost
+# real tokens for nothing, since the analyst never needs to dereference them.
+_PROMPT_DROP_FIELDS = ("thumbnail_url", "image_urls", "author_handle_hash")
+_PROMPT_CAPTION_FIELDS = ("description", "hook_text", "text_overlay_content", "summary")
 
 DEFAULT_ANALYST_MAX_IMAGES = 12
 
@@ -240,6 +258,34 @@ def load_viral_playbook(run_dir: Path) -> ViralPlaybook | None:
 # ---------------------------------------------------------------------------
 
 
+def _trim_caption_text(value: Any, *, limit: int = PROMPT_CAPTION_TRIM_CHARS) -> Any:
+    """Trim one caption-shaped string to ``limit`` chars for the PROMPT copy
+    only — never mutates/truncates the on-disk research artifact. Non-string
+    values pass through unchanged (defensive; the corpus is untyped YAML)."""
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    return value[:limit].rstrip() + "…"
+
+
+def _trim_prompt_item(item: dict[str, Any]) -> dict[str, Any]:
+    """One video/slideshow corpus item, shrunk for the N-A prompt: heavy
+    URL/hash fields dropped, every caption-shaped field trimmed to
+    ``PROMPT_CAPTION_TRIM_CHARS``, and ``panel_texts`` both capped in count
+    and trimmed per-entry."""
+    if not isinstance(item, dict):
+        return item
+    trimmed = {k: v for k, v in item.items() if k not in _PROMPT_DROP_FIELDS}
+    for field_name in _PROMPT_CAPTION_FIELDS:
+        if field_name in trimmed:
+            trimmed[field_name] = _trim_caption_text(trimmed.get(field_name))
+    panel_texts = trimmed.get("panel_texts")
+    if isinstance(panel_texts, list):
+        trimmed["panel_texts"] = [
+            _trim_caption_text(t) for t in panel_texts[:MAX_PANEL_TEXTS_PER_SLIDESHOW]
+        ]
+    return trimmed
+
+
 def _truncate_corpus(corpus: dict[str, Any]) -> dict[str, Any]:
     themes = list(corpus.get("themes") or [])
     themes_sorted = sorted(
@@ -247,14 +293,22 @@ def _truncate_corpus(corpus: dict[str, Any]) -> dict[str, Any]:
         key=lambda t: (t.get("confidence") or 0, t.get("video_count") or 0),
         reverse=True,
     )[:MAX_THEMES_IN_PROMPT]
+    videos = [
+        _trim_prompt_item(v) for v in list(corpus.get("videos") or [])[:MAX_VIDEOS_IN_PROMPT] if isinstance(v, dict)
+    ]
+    slideshows = [
+        _trim_prompt_item(s)
+        for s in list(corpus.get("slideshows") or [])[:MAX_SLIDESHOWS_IN_PROMPT]
+        if isinstance(s, dict)
+    ]
     return {
         "themes": themes_sorted,
         "viral_tactics": list(corpus.get("viral_tactics") or [])[:MAX_VIRAL_TACTICS_IN_PROMPT],
         "top_10_breakdown": corpus.get("top_10_breakdown") or {},
         "connecting_thread": corpus.get("connecting_thread"),
         "key_highlight": corpus.get("key_highlight"),
-        "videos": list(corpus.get("videos") or [])[:MAX_VIDEOS_IN_PROMPT],
-        "slideshows": list(corpus.get("slideshows") or [])[:MAX_SLIDESHOWS_IN_PROMPT],
+        "videos": videos,
+        "slideshows": slideshows,
     }
 
 

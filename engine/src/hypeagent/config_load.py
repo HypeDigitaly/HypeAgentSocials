@@ -451,6 +451,16 @@ class LlmConfig:
     per_run_call_cap: int = 20
     analyst_max_images: int = 12
     node_overrides: dict[str, LlmNodeOverride] = field(default_factory=dict)
+    # W8-9 Q?? (post-live-run QA-starvation fix): calls set aside for the
+    # ``vision_qa`` node ONLY -- non-QA nodes (analyst/copywriter/
+    # prompt_crafter) see an effective call cap of
+    # ``per_run_call_cap - qa_reserved_calls`` (``LlmClient._check_budget``),
+    # so a chatty upstream stage can no longer starve N-E vision-QA of every
+    # remaining call before it ever runs (the live-run defect: QA ran for
+    # only 4 of 11 images because analyst/copy/craft had already consumed
+    # the whole per-run cap). A QA call itself is exempt from this
+    # reservation and may use the full ``per_run_call_cap``.
+    qa_reserved_calls: int = 16
 
     def override_for(self, node_name: str) -> LlmNodeOverride:
         return self.node_overrides.get(node_name, LlmNodeOverride())
@@ -586,6 +596,7 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         per_run_call_cap=int(llm_block.get("per_run_call_cap", 20)),
         analyst_max_images=int(llm_block.get("analyst_max_images", 12)),
         node_overrides=node_overrides,
+        qa_reserved_calls=int(llm_block.get("qa_reserved_calls", 16)),
     )
 
     return GenerationConfig(

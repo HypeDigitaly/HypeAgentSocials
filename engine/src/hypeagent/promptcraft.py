@@ -38,6 +38,7 @@ module existed. This module never raises out to its caller.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ from hypeagent.claim_gate import run_claim_gate
 from hypeagent.config_load import ResolvedList
 from hypeagent.copy_gen import AI_DISCLOSURE_LINE
 from hypeagent.llm import LlmClient, LlmError
+from hypeagent.trace import TraceWriter
 
 MEDIA_PROMPTS_FILENAME = "media_prompts.yaml"
 
@@ -62,7 +64,27 @@ SYSTEM_PROMPT = (
     "will receive. Embed the given gate-passed text VERBATIM so it renders correctly in the final "
     "image — never paraphrase it, never invent a new number, claim, or brand fact not already given "
     "to you. Every prompt must read as a single natural-language generation instruction once "
-    "extracted from your JSON response, not as a list of bullet points."
+    "extracted from your JSON response, not as a list of bullet points, and it must be a COMPLETE "
+    "sentence/instruction ending in proper punctuation — never stop mid-phrase.\n\n"
+    "PROMPT-HYGIENE RULES — a live run once leaked every one of these straight into a client-facing "
+    "image (the literal words 'UII Label', the literal words 'Montserrat SemiBold', and a headline "
+    "wrapped in visible quotation marks), so follow all four without exception:\n"
+    "(a) NEVER name a font or typeface as renderable content — words like 'Montserrat', 'SemiBold', "
+    "'Helvetica Bold' must never appear as text the image should show. Describe type style visually "
+    "instead: 'a high-contrast modern serif italic', 'a clean geometric sans-serif' — never by font "
+    "name.\n"
+    "(b) Every decorative element (icon, dot, shape, badge, checkbox, pill) you describe must either "
+    "carry SPECIFIED text content you give it verbatim, or be explicitly described as containing no "
+    "text at all, e.g. 'a small solid teal accent dot, no text on it'. Never leave a decorative "
+    "element's text ambiguous — an image model fills an ambiguous label with invented filler words.\n"
+    "(c) Every exact-text directive uses exactly this pattern: 'the text <<...>> appears' with the "
+    "literal required text inside the << >> markers, followed by 'rendered without surrounding "
+    "quotation marks' — quotation marks are a writing convention in YOUR prompt text, never something "
+    "the generated image itself should visibly show around the text.\n"
+    "(d) NEVER use a placeholder word as literal renderable content — 'label', 'UI text', 'sample "
+    "text', 'placeholder', 'lorem ipsum' must never appear as text the image should render. Every "
+    "piece of on-image text must be REAL, SPECIFIC text you were given, or the element must carry no "
+    "text at all (rule b)."
 )
 
 
@@ -216,6 +238,47 @@ def series_token_for(run_id: str, cluster_key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Crafted-prompt validation (W8-9 point 1c) — a second, deterministic line
+# of defense independent of ``llm.LlmClient``'s own finish_reason check: a
+# prompt that LOOKS complete (parses fine as JSON, no truncation reported)
+# can still be cut off mid-sentence, or silently drop the exact text it was
+# supposed to embed. Never guesses a fix -- an invalid prompt fails closed
+# (module docstring: that slot falls back to ``compose_prompt`` for a hero,
+# or degrades the whole set for a carousel, since there is no deterministic
+# per-slide composer — see ``craft_prompts``).
+# ---------------------------------------------------------------------------
+
+MIN_PROMPT_CHARS = 20
+MAX_PROMPT_CHARS = 6000
+_ENDS_IN_PUNCTUATION_RE = re.compile(r'[.!?][)"\']?\s*$')
+
+
+def validate_crafted_prompt(prompt: str, *, required_texts: list[str] | None = None) -> str | None:
+    """Returns a human-readable failure reason, or ``None`` when ``prompt``
+    passes every check: proper closing punctuation (never cut off
+    mid-sentence — the live-run defect this exists for: a slide prompt
+    truncated at "platform built for" was submitted to the image model
+    as-is), length sanity, and — when this slot has one — complete,
+    verbatim inclusion of every required on-image text fragment (never a
+    paraphrase, never a partial quote)."""
+    text = (prompt or "").strip()
+    if len(text) < MIN_PROMPT_CHARS:
+        return f"prompt too short ({len(text)} chars, minimum {MIN_PROMPT_CHARS})"
+    if len(text) > MAX_PROMPT_CHARS:
+        return f"prompt too long ({len(text)} chars, maximum {MAX_PROMPT_CHARS})"
+    if not _ENDS_IN_PUNCTUATION_RE.search(text):
+        return "prompt does not end in proper punctuation (looks cut off mid-sentence)"
+    for required in required_texts or []:
+        if required and required not in prompt:
+            return f"prompt does not contain the required exact-text segment complete: {required!r}"
+    return None
+
+
+def _slide_required_texts(slide: dict[str, str]) -> list[str]:
+    return [str(t).strip() for t in (slide.get("title"), slide.get("body")) if str(t or "").strip()]
+
+
+# ---------------------------------------------------------------------------
 # The crafting call.
 # ---------------------------------------------------------------------------
 
@@ -233,6 +296,8 @@ def craft_prompts(
     theme_playbook: Any | None,
     series_token: str,
     node_name: str = "prompt_crafter",
+    trace: TraceWriter | None = None,
+    stage: str = "media",
 ) -> CraftedPromptSet:
     if llm_client is None:
         return CraftedPromptSet(
@@ -280,12 +345,50 @@ def craft_prompts(
     except LlmError as exc:
         return CraftedPromptSet(asset_id=asset_id, unavailable=True, unavailable_reason=f"{type(exc).__name__}: {exc}")
 
+    is_carousel = bool(slides)
+    required_texts_by_slot: dict[str, list[str]] = {}
+    if slides:
+        for i, slide in enumerate(slides, start=1):
+            required_texts_by_slot[f"slide_{i:02d}"] = _slide_required_texts(slide)
+
     images_raw = data.get("images")
-    images: list[CraftedImage] = []
+    candidates: list[CraftedImage] = []
     if isinstance(images_raw, list):
         for item in images_raw:
             if isinstance(item, dict) and item.get("slot") and item.get("prompt"):
-                images.append(CraftedImage(slot=str(item["slot"]), prompt=str(item["prompt"])))
+                candidates.append(CraftedImage(slot=str(item["slot"]), prompt=str(item["prompt"])))
+
+    images: list[CraftedImage] = []
+    invalid_reasons: list[str] = []
+    for image in candidates:
+        reason = validate_crafted_prompt(image.prompt, required_texts=required_texts_by_slot.get(image.slot))
+        if reason:
+            invalid_reasons.append(f"{image.slot}: {reason}")
+        else:
+            images.append(image)
+
+    if invalid_reasons:
+        if trace is not None:
+            trace.decision(
+                stage,
+                decision=f"N-D crafted prompt(s) for {asset_id} failed validation: {'; '.join(invalid_reasons)}",
+                rule="W8-9 point 1c: an invalid crafted prompt is never submitted — hero falls back to "
+                "compose_prompt, a carousel with any invalid slide degrades its whole set",
+            )
+        if is_carousel:
+            # No deterministic per-slide composer exists (module docstring)
+            # -- one invalid slide degrades the WHOLE set rather than
+            # shipping a carousel with a slot silently missing or, worse,
+            # mis-numbered against the copy asset's own slide list.
+            return CraftedPromptSet(
+                asset_id=asset_id, unavailable=True,
+                unavailable_reason=f"invalid crafted prompt(s): {'; '.join(invalid_reasons)}",
+            )
+        # Hero: dropping the one invalid candidate (if any) below naturally
+        # falls through to "no usable image prompts" -> unavailable, which
+        # is this module's own signal for the caller to fall back to
+        # ``compose_prompt(image_brief)`` (media_gen.plan_media_assets).
+
     if not images:
         return CraftedPromptSet(asset_id=asset_id, unavailable=True, unavailable_reason="crafter returned no usable image prompts")
     return CraftedPromptSet(asset_id=asset_id, images=images, archetype=archetype, register=register)

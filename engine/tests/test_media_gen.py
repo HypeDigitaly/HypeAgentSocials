@@ -992,6 +992,68 @@ class TestUnexplainedSpendCircuitBreaker:
             store.close()
 
 
+class TestSpendEventDeltaAccounting:
+    """W8-9 (spend-report ×N inflation fix): each ``spend`` trace event must
+    record the DELTA this one submission contributed, never the running
+    cumulative total -- summing every event for a run must equal the true
+    total ledger spend AND the true observed balance delta (the live-run
+    defect: cumulative values 0.04, 0.08, ... summed to $2.64 when the true
+    spend was $0.44)."""
+
+    def test_three_image_run_summed_spend_events_match_true_total(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(
+                responses={
+                    "createTask": [_create_task_ok("task_1"), _create_task_ok("task_2"), _create_task_ok("task_3")],
+                    "recordInfo": [
+                        _record_info_success("task_1"), _record_info_success("task_2"), _record_info_success("task_3"),
+                    ],
+                    # 1 pre-submission snapshot + 3 post-submission reconciliations.
+                    "chat/credit": [
+                        _credit_balance(100.0), _credit_balance(96.0), _credit_balance(92.0), _credit_balance(88.0),
+                    ],
+                    RESULT_IMAGE_URL: [_image_response()] * 3,
+                }
+            )
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            statuses_in = [
+                _copy_status(asset_id=f"ck{i}_linkedin", cluster_key=f"ck{i}", destination="linkedin")
+                for i in (1, 2, 3)
+            ]
+            plans = media_gen.plan_media_assets(statuses_in)
+            result = generator.process(plans)
+            trace.close()
+
+            assert [s.status for s in result.statuses] == ["generated", "generated", "generated"]
+            # True total: 3 submissions x $0.02 (4 credits x $0.005) each --
+            # and the true observed balance delta (100 -> 88 credits) agrees.
+            assert result.total_spent_usd == pytest.approx(0.06)
+
+            events = [
+                json.loads(line) for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            media_spends = [e["detail"] for e in events if e["event"] == "spend" and e["detail"]["wallet"] == "media"]
+            assert len(media_spends) == 3
+            # Each event is a per-submission DELTA (~$0.02), never a running
+            # cumulative total (~$0.02, $0.04, $0.06) -- this is exactly the
+            # distinction the fix makes.
+            for detail in media_spends:
+                assert detail["ledger_recorded"] == pytest.approx(0.02)
+                assert detail["balance_delta"] == pytest.approx(0.02)
+
+            summed_ledger = sum(d["ledger_recorded"] for d in media_spends)
+            summed_balance_delta = sum(d["balance_delta"] for d in media_spends)
+            assert summed_ledger == pytest.approx(0.06)
+            assert summed_balance_delta == pytest.approx(0.06)
+            assert summed_ledger == pytest.approx(result.total_spent_usd)
+            assert summed_balance_delta == pytest.approx(summed_ledger)
+        finally:
+            store.close()
+
+
 class TestDryRun:
     def test_dry_run_produces_plan_only_and_spends_nothing(self, tmp_path):
         store = _store(tmp_path)
@@ -1112,6 +1174,29 @@ class TestCraftedHeroPromptWiring:
 # ---------------------------------------------------------------------------
 
 
+class TestQaRubricWording:
+    """W8-9 point 4: the live-run defect was QA passing an image with a
+    real text duplication error and a garbled decorative label -- the
+    system prompt must be explicit that any required-string defect
+    (duplication, omission, garbling) fails text_matches, while only
+    non-required decorative/background text may be noted without failing."""
+
+    def test_rubric_forbids_duplication_omission_and_garbling(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "duplicat" in lowered
+        assert "omission" in lowered or "missing" in lowered
+        assert "garbl" in lowered
+
+    def test_rubric_allows_decorative_text_to_be_noted_without_failing(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "decorative" in lowered
+        assert "without failing" in lowered
+
+    def test_rubric_still_fails_prominent_garbled_foreground_text(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "must still fail" in lowered or "must fail" in lowered
+
+
 class TestVisionQaGate:
     def test_pass_verdict_keeps_status_generated(self, tmp_path):
         store = _store(tmp_path)
@@ -1204,6 +1289,38 @@ class TestVisionQaGate:
             )
             assert attempt2 is not None
             assert attempt2.state == "done"
+        finally:
+            store.close()
+
+    def test_qa_reserve_lets_qa_run_even_after_non_qa_effective_cap_is_exhausted(self, tmp_path):
+        """W8-9 point 2: ``run_vision_qa`` marks its own call ``is_qa=True``,
+        so it can still run off the QA reserve even once every non-QA node
+        has exhausted its own (smaller) effective share of the shared
+        per-run call cap."""
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(
+                responses={
+                    "createTask": [_create_task_ok("task_reserve")],
+                    "recordInfo": [_record_info_success("task_reserve")],
+                    "chat/credit": [_credit_balance(100.0), _credit_balance(96.0)],
+                    RESULT_IMAGE_URL: [_image_response()],
+                    "chat/completions": [_qa_response(text_matches=True, archetype_ok=True)],
+                }
+            )
+            # per_run_call_cap=1, qa_reserved_calls=1 -- the effective
+            # non-QA cap is 1 - 1 = 0, so a non-QA node could make NO calls
+            # at all this run, yet QA (is_qa=True) still gets its call.
+            llm_client = _llm_client(fetcher, trace, per_run_call_cap=1, qa_reserved_calls=1)
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher, llm_client=llm_client)
+            plans = media_gen.plan_media_assets(
+                [_copy_status()], crafted_prompts={"ck1_linkedin": _crafted_hero("ck1_linkedin")}
+            )
+            result = generator.process(plans)
+            trace.close()
+            assert result.statuses[0].qa_verdict == "pass"
+            assert llm_client.call_count == 1
         finally:
             store.close()
 

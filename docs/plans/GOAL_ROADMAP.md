@@ -164,6 +164,37 @@ The goal's completion criterion is the **test run**, and the test run defines th
       carousel (no double-billing).
 - [ ] **Q5 — brand assets**: pull HypeLead v2 pack essentials (logos, wordmarks, 7 post-*
       templates) from Notion into assets/brand/ for prompt grounding.
+### Q6 STATUS SNAPSHOT (2026-08-07, pre-compaction — read this first after /compact)
+- Q1–Q5 COMMITTED (through 98f74ce): .env, rich Virlo collection, OpenRouter LLM client,
+  N-A/N-C/N-D nodes, NB2 standard tier (LIVE price 8cr/$0.04), per-slide ledger, N-E QA,
+  brand assets. 283/283 tests at last commit.
+- **Full live test run DONE + ANALYZED: `2026-08-07_e4d8`** (exit 0, 12m09s, real cost
+  ~$1.06 = $0.62 LLM + $0.44 images/88 credits, balance 10056→9968). Output quality:
+  major leap — editorial-carousel archetype achieved, 7-beat LinkedIn copy w/ honest
+  trend attribution, gates + QA + per-slide billing all proven live.
+- **6 defects found (analysis in chat + evidenced in the run dir): (1) max_tokens 1500
+  truncation — 2 LinkedIn assets fell to held, carousels 2-4 slides not 6-10, slide_04
+  prompt cut mid-sentence → hallucinated filler text in image; (2) per_run_call_cap 20
+  starved N-E QA (4 of 11 images QA'd, broken slide among skipped); (3) instruction
+  leakage in images ('UII Label' pill, literal 'Montserrat SemiBold', quoted headline);
+  (4) QA rubric too lenient (passed duplicated phrase); (5) media spend events record
+  CUMULATIVE → summary reported $2.64 vs real $0.44 (reporting only); (6) missing
+  end-card/6-slide validation.**
+- **IN FLIGHT: fix builder agent** (python-pro, background) addressing all 6: per-node
+  max_tokens (analyst 4000/copy 4000/craft 6000/QA 1000), finish_reason truncation
+  detection (never accept truncated output), crafted-prompt completeness validation,
+  call cap 60 + qa_reserved_calls 16, prompt-hygiene rules, strict QA rubric, spend
+  delta fix, slide-count validation. On its completion: pytest, secret scan, commit.
+- **THEN the Q6(c) flow re-audit** (not started): judge the flow structure against run
+  e4d8's evidence, update FLOW_MAP.md + artifact
+  https://claude.ai/code/artifact/576e658b-81ea-4d1e-bc19-3fcdf99312f3 (favicon 🗺️,
+  same URL), propose structural improvements to the operator. Optionally re-run a
+  test after fixes to confirm (cheap: ~$1).
+- Known open oddities for the re-audit: ranking rescores stale Google News candidates
+  (566 noise rows), spin bands all "Low", LinkedIn hero got decorative toggle switches,
+  analyst prompt was 70k tokens (trim), platform_norms "not observed in corpus" for
+  LinkedIn/IG (corpus is TikTok-heavy — inspiration folder fills the gap).
+
 - [ ] **Q6 — FINISH (operator directive 2026-08-07): test thoroughly, then re-audit the
       flow itself.** (a) Full EN test run: 1 LinkedIn post + hero image, 1 IG carousel
       (~6 slides + caption), real Virlo + OpenRouter + Kie, ≤$2.50. (b) Analyze results:

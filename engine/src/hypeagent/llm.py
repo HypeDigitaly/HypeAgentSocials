@@ -95,6 +95,17 @@ class LlmParseError(LlmError):
     even after the one corrective retry."""
 
 
+class LlmTruncatedError(LlmError):
+    """The model's response was cut off by the provider before it finished
+    (``finish_reason == "length"``), even after the one corrective retry
+    with a larger token budget. A truncated response is NEVER parsed into a
+    usable-looking partial result (a live run once fed a mid-sentence-cut
+    image-generation prompt straight to the image model, which hallucinated
+    filler text to complete it) -- this error exists so that can never
+    happen silently again; callers degrade exactly as they do for any other
+    :class:`LlmError`."""
+
+
 # ---------------------------------------------------------------------------
 # Content-part helpers (vision).
 # ---------------------------------------------------------------------------
@@ -215,6 +226,7 @@ def _redact_secret(text: str, secret: str | None) -> str:
 class _LlmCallResult:
     content: str
     usage: dict[str, Any]
+    finish_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -264,10 +276,23 @@ class LlmClient:
         usd_remaining = max(0.0, self.config.per_run_usd_cap - self.spent_usd)
         return calls_remaining, usd_remaining
 
-    def _check_budget(self, node_name: str) -> None:
-        if self.call_count >= self.config.per_run_call_cap:
+    def _check_budget(self, node_name: str, *, is_qa: bool = False) -> None:
+        """QA-reserve fix: a non-QA call's effective call cap is
+        ``per_run_call_cap - qa_reserved_calls`` -- calls set aside for N-E
+        vision-QA are simply invisible to every other node, so a chatty
+        analyst/copywriter/prompt-crafter run can no longer consume the
+        whole per-run cap before QA ever gets to run (the live-run defect:
+        QA ran for only 4 of 11 images). A QA call itself is exempt from
+        the reservation and may use the full ``per_run_call_cap``."""
+        effective_call_cap = (
+            self.config.per_run_call_cap
+            if is_qa
+            else max(0, self.config.per_run_call_cap - self.config.qa_reserved_calls)
+        )
+        if self.call_count >= effective_call_cap:
+            reserve_note = "" if is_qa else f" ({self.config.qa_reserved_calls} calls reserved for vision-QA)"
             raise LlmBudgetExceededError(
-                f"{node_name}: per-run LLM call cap reached ({self.config.per_run_call_cap} calls) "
+                f"{node_name}: per-run LLM call cap reached ({effective_call_cap} calls{reserve_note}) "
                 "— no more LLM calls this run"
             )
         if self.spent_usd >= self.config.per_run_usd_cap:
@@ -288,17 +313,30 @@ class LlmClient:
         max_tokens: int | None = None,
         temperature: float | None = None,
         purpose: str = "",
+        is_qa: bool = False,
     ) -> dict[str, Any]:
         """Call the model and return a parsed JSON object.
 
-        On an unparseable/schema-miss response: ONE corrective retry
-        (append the model's own bad output plus the parse error and "return
-        only JSON" to the conversation), then raise :class:`LlmParseError`.
+        On an unparseable/schema-miss response OR a response the provider
+        itself reports as truncated (``finish_reason == "length"``): ONE
+        corrective retry (append the model's own bad/truncated output plus
+        a corrective instruction — a bigger token-budget hint for a
+        truncation, the parse error for a schema miss — to the
+        conversation), then raise :class:`LlmParseError` /
+        :class:`LlmTruncatedError` respectively. A truncated response is
+        NEVER handed to the JSON parser and returned as if it were a
+        complete result, even when it happens to parse — truncation is
+        checked BEFORE parsing, every attempt (module docstring: "a
+        truncated response must NEVER be parsed into a usable-looking
+        partial result").
+
         Raises :class:`LlmBudgetExceededError` without ever touching the
         network if the run's budget is already exhausted; raises
         :class:`LlmTransportError` / :class:`LlmApiError` for transport/API
-        failures. All four are subclasses of :class:`LlmError` — callers
-        should catch that base class to degrade.
+        failures. All five are subclasses of :class:`LlmError` — callers
+        should catch that base class to degrade. ``is_qa`` marks this call
+        as N-E vision-QA for the per-run call-cap's QA reserve (see
+        :meth:`_check_budget`) — every other caller leaves it ``False``.
         """
         override = self.config.override_for(node_name)
         model = override.model or self.config.model
@@ -330,29 +368,50 @@ class LlmClient:
 
         result = self._call_once(
             node_name=node_name, model=model, messages=messages, max_tokens=tokens, temperature=temp,
-            has_image=has_image, purpose=purpose or node_name, attempt=1,
+            has_image=has_image, purpose=purpose or node_name, attempt=1, is_qa=is_qa,
         )
-        parsed, error = _parse_json_content(result.content)
-        if parsed is not None:
-            return parsed
 
-        # ONE corrective retry — the model sees its own bad output plus the
-        # parse error, and is told again to return only JSON.
+        truncated = result.finish_reason == "length"
+        if truncated:
+            parsed, error = None, f"response truncated by the provider (finish_reason='length') at max_tokens={tokens}"
+        else:
+            parsed, error = _parse_json_content(result.content)
+            if parsed is not None:
+                return parsed
+
+        # ONE corrective retry — covers both an unparseable response and a
+        # truncated one. A truncated attempt gets a bigger token-budget
+        # hint (and is asked to be more concise) rather than the generic
+        # parse-error message, since "return only JSON" alone does nothing
+        # to fix a response that was cut off by its own length limit.
         messages.append({"role": "assistant", "content": result.content})
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "Your previous response could not be parsed as a single JSON object. "
-                    f"Parse error: {error}. Return ONLY the corrected JSON object — no prose, "
-                    "no markdown code fences, no explanation."
-                ),
-            }
-        )
+        if truncated:
+            retry_tokens = max(tokens * 2, tokens + 2000)
+            corrective_content = (
+                "Your previous response was TRUNCATED before it finished (it hit the max output "
+                "length) and cannot be used, even the part that looks complete. This retry has a "
+                "larger token budget — still, produce a SHORTER, more concise response that fits "
+                "comfortably within it while including every required field. Return ONLY the "
+                "corrected JSON object — no prose, no markdown code fences, no explanation."
+            )
+        else:
+            retry_tokens = tokens
+            corrective_content = (
+                "Your previous response could not be parsed as a single JSON object. "
+                f"Parse error: {error}. Return ONLY the corrected JSON object — no prose, "
+                "no markdown code fences, no explanation."
+            )
+        messages.append({"role": "user", "content": corrective_content})
         result2 = self._call_once(
-            node_name=node_name, model=model, messages=messages, max_tokens=tokens, temperature=temp,
-            has_image=has_image, purpose=f"{purpose or node_name} (corrective retry)", attempt=2,
+            node_name=node_name, model=model, messages=messages, max_tokens=retry_tokens, temperature=temp,
+            has_image=has_image, purpose=f"{purpose or node_name} (corrective retry)", attempt=2, is_qa=is_qa,
         )
+        if result2.finish_reason == "length":
+            raise LlmTruncatedError(
+                f"{node_name}: model output truncated (finish_reason='length') even after 1 corrective "
+                f"retry with a larger token budget ({retry_tokens} max_tokens) — never parsed as a "
+                "partial result"
+            )
         parsed2, error2 = _parse_json_content(result2.content)
         if parsed2 is not None:
             return parsed2
@@ -373,8 +432,9 @@ class LlmClient:
         has_image: bool,
         purpose: str,
         attempt: int,
+        is_qa: bool = False,
     ) -> _LlmCallResult:
-        self._check_budget(node_name)
+        self._check_budget(node_name, is_qa=is_qa)
 
         body_dict = {
             "model": model,
@@ -462,7 +522,7 @@ class LlmClient:
 
         if response.status >= 400:
             raise LlmApiError(f"{node_name}: HTTP {response.status}")
-        return _LlmCallResult(content=content, usage=usage)
+        return _LlmCallResult(content=content, usage=usage, finish_reason=finish_reason)
 
     def _estimate_usd(self, usage: dict[str, Any]) -> float:
         prompt_tokens = usage.get("prompt_tokens") or 0

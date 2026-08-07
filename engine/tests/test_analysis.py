@@ -193,6 +193,76 @@ class TestDegradePathsNeverFailTheRun:
         assert len(fetcher.calls) == 0
 
 
+class TestPromptSizeReduction:
+    """W8-9 (post-live-run token-starvation fix): the N-A prompt must stay
+    well under the old ~70k-token size -- fewer items, top themes only, and
+    every caption-shaped field trimmed to ~300 chars. The on-disk
+    ``virlo_corpus.yaml`` research artifact itself is never touched (module
+    docstring) -- only the PROMPT copy this builds."""
+
+    def _big_corpus(self) -> dict:
+        long_caption = "x" * 5000
+        themes = [
+            {
+                "name": f"theme-{i}", "stable_key": f"theme-{i}", "confidence": 1.0 - (i * 0.01),
+                "video_count": 10, "tactics": ["a"], "why_it_works": "because", "evidence_video_ids": [],
+            }
+            for i in range(20)
+        ]
+        videos = [
+            {
+                "id": f"v{i}", "url": f"https://tiktok.com/{i}", "platform": "tiktok", "views": 1000 - i,
+                "description": long_caption, "hook_text": long_caption, "summary": long_caption,
+                "hashtags": ["ai"], "thumbnail_url": "https://cdn.example.com/thumb.jpg",
+                "author_handle_hash": "deadbeef" * 8,
+            }
+            for i in range(20)
+        ]
+        slideshows = [
+            {
+                "id": f"s{i}", "url": f"https://instagram.com/{i}", "platform": "instagram", "views": 1000 - i,
+                "panel_texts": [long_caption] * 10, "panel_count": 10,
+                "image_urls": ["https://cdn.example.com/panel.jpg"] * 10,
+            }
+            for i in range(20)
+        ]
+        return {
+            "themes": themes, "viral_tactics": [f"tactic-{i}" for i in range(30)],
+            "top_10_breakdown": {}, "connecting_thread": "x", "key_highlight": "y",
+            "videos": videos, "slideshows": slideshows,
+        }
+
+    def test_truncate_corpus_caps_item_counts(self):
+        truncated = analysis._truncate_corpus(self._big_corpus())
+        assert len(truncated["themes"]) == analysis.MAX_THEMES_IN_PROMPT
+        assert len(truncated["videos"]) == analysis.MAX_VIDEOS_IN_PROMPT
+        assert len(truncated["slideshows"]) == analysis.MAX_SLIDESHOWS_IN_PROMPT
+        assert len(truncated["viral_tactics"]) == analysis.MAX_VIRAL_TACTICS_IN_PROMPT
+
+    def test_truncate_corpus_trims_caption_fields_and_panel_texts(self):
+        truncated = analysis._truncate_corpus(self._big_corpus())
+        for video in truncated["videos"]:
+            assert len(video["description"]) <= analysis.PROMPT_CAPTION_TRIM_CHARS + 1
+            assert len(video["hook_text"]) <= analysis.PROMPT_CAPTION_TRIM_CHARS + 1
+            assert len(video["summary"]) <= analysis.PROMPT_CAPTION_TRIM_CHARS + 1
+            assert "thumbnail_url" not in video
+            assert "author_handle_hash" not in video
+        for slideshow in truncated["slideshows"]:
+            assert len(slideshow["panel_texts"]) <= analysis.MAX_PANEL_TEXTS_PER_SLIDESHOW
+            assert all(len(t) <= analysis.PROMPT_CAPTION_TRIM_CHARS + 1 for t in slideshow["panel_texts"])
+            assert "image_urls" not in slideshow
+
+    def test_prompt_size_stays_well_under_the_old_70k_token_incident_size(self):
+        system, user_parts, _schema_hint = analysis.build_analyst_prompt(
+            corpus=self._big_corpus(), style_guide=None, image_paths=[],
+        )
+        text_part = user_parts[0]["text"]
+        # Rough token estimate (~4 chars/token, the conservative direction
+        # for English/mixed text) -- the old shape hit ~70k tokens; this
+        # must land comfortably under the new <30k-token target.
+        assert (len(system) + len(text_part)) / 4 < 30_000
+
+
 class TestImageSelection:
     def test_prefers_slideshow_panels_over_video_thumbnails_and_caps(self, tmp_path):
         media_dir = tmp_path / "virlo_media"

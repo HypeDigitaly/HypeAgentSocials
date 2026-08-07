@@ -321,6 +321,107 @@ class TestOpenRouterProviderCarouselSchema:
         assert "carousel" in sent_body["messages"][1]["content"].lower()
 
 
+class TestCarouselCompleteness:
+    """W8-9: a deficient carousel (< MIN_CAROUSEL_SLIDES slides, or no
+    role='end_card') gets ONE corrective retry mentioning the deficiency,
+    then is accepted with a trace note regardless — never a hard fail."""
+
+    def _slides(self, n: int, *, with_end_card: bool = True) -> list[dict]:
+        slides = [{"role": "cover", "title": "Cover", "body": ""}]
+        slides += [{"role": "body", "title": f"Step {i}", "body": f"Do thing {i}."} for i in range(1, n - 1)]
+        if with_end_card:
+            slides.append({"role": "end_card", "title": "Follow us", "body": ""})
+        else:
+            slides.append({"role": "body", "title": "More", "body": "more content"})
+        return slides[:n]
+
+    def test_deficient_slide_count_retries_and_succeeds(self, tmp_path):
+        from hypeagent.trace import TraceWriter
+
+        deficient = self._slides(3)  # < 6 slides
+        fixed = self._slides(6)
+        fetcher = _QueueFetcher([
+            _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": deficient, "image_direction": "a desk"}
+            ),
+            _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": fixed, "image_direction": "a desk"}
+            ),
+        ])
+        tw = TraceWriter(tmp_path / "trace.jsonl", "run-1")
+        client = LlmClient(config=LlmConfig(enabled=True), fetcher=fetcher, api_key="sk-secret", trace=tw)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={}, viral_playbook=None,
+            brand_identity_one_liner="HypeDigitaly is a Czech AI agency.", trace=tw, stage="copy",
+        )
+        result = provider.generate(_request(asset_id="ck1_instagram_feed", destination="instagram_feed"))
+        tw.close()
+        assert len(result.slides) == 6
+        assert any(s["role"] == "end_card" for s in result.slides)
+        assert len(fetcher.request_bodies) == 2
+        second_user_text = json.loads(fetcher.request_bodies[1])["messages"][1]["content"]
+        assert "deficient" in second_user_text.lower()
+
+    def test_deficiency_persists_after_retry_is_accepted_with_trace_note(self, tmp_path):
+        from hypeagent.trace import TraceWriter
+
+        deficient = self._slides(3)
+        fetcher = FixtureFetcher(responses={
+            ENDPOINT_KEY: _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": deficient, "image_direction": "a desk"}
+            )
+        })
+        trace_path = tmp_path / "trace.jsonl"
+        tw = TraceWriter(trace_path, "run-1")
+        client = LlmClient(config=LlmConfig(enabled=True), fetcher=fetcher, api_key="sk-secret", trace=tw)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={}, viral_playbook=None,
+            brand_identity_one_liner="HypeDigitaly is a Czech AI agency.", trace=tw, stage="copy",
+        )
+        result = provider.generate(_request(asset_id="ck1_instagram_feed", destination="instagram_feed"))
+        tw.close()
+        # Never a hard fail -- the deficient result still ships.
+        assert len(result.slides) == 3
+        assert len(fetcher.request_bodies) == 2  # the one corrective retry happened
+
+        events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        decisions = [e["detail"]["decision"] for e in events if e["event"] == "decision"]
+        assert any("persisted after 1 corrective retry" in d for d in decisions)
+
+    def test_missing_end_card_is_a_deficiency(self, tmp_path):
+        no_end_card = self._slides(6, with_end_card=False)
+        fixed = self._slides(6, with_end_card=True)
+        fetcher = _QueueFetcher([
+            _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": no_end_card, "image_direction": "a desk"}
+            ),
+            _ok_llm_response(
+                {"headline": "hi", "caption": f"body {DISCLOSURE}", "slides": fixed, "image_direction": "a desk"}
+            ),
+        ])
+        client = _llm_client(fetcher, tmp_path)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={}, viral_playbook=None,
+            brand_identity_one_liner="HypeDigitaly is a Czech AI agency.",
+        )
+        result = provider.generate(_request(asset_id="ck1_instagram_feed", destination="instagram_feed"))
+        assert any(s["role"] == "end_card" for s in result.slides)
+        assert len(fetcher.request_bodies) == 2
+
+    def test_linkedin_destination_is_never_checked_for_slide_completeness(self, tmp_path):
+        fetcher = FixtureFetcher(responses={
+            ENDPOINT_KEY: _ok_llm_response({"headline": "hi", "caption": f"body {DISCLOSURE}", "image_direction": "a desk"})
+        })
+        client = _llm_client(fetcher, tmp_path)
+        provider = OpenRouterProvider(
+            llm_client=client, style_guide={}, viral_playbook=None,
+            brand_identity_one_liner="HypeDigitaly is a Czech AI agency.",
+        )
+        result = provider.generate(_request(destination="linkedin"))
+        assert result.slides is None
+        assert len(fetcher.request_bodies) == 1  # no completeness retry for a non-carousel destination
+
+
 class TestOpenRouterGateRepairCarriesFailingSpans:
     def test_second_request_body_carries_prior_failing_spans(self, tmp_path):
         bad_payload = {"headline": "The best AI chatbot ever", "caption": f"Guaranteed results. {DISCLOSURE}", "image_direction": ""}

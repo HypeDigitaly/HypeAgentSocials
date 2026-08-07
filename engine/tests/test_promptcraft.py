@@ -45,6 +45,43 @@ def _client(tmp_path, fetcher, **overrides) -> tuple[LlmClient, TraceWriter]:
     return LlmClient(config=LlmConfig(enabled=True, **overrides), fetcher=fetcher, api_key="sk-secret", trace=tw), tw
 
 
+class TestPromptHygieneSystemPrompt:
+    """W8-9 point 3: a live run leaked 'UII Label', the literal words
+    'Montserrat SemiBold', and a quote-wrapped headline straight into
+    client-facing images -- the N-D system prompt must explicitly forbid
+    all three failure modes."""
+
+    def test_system_prompt_forbids_font_names_as_content(self):
+        assert "font" in promptcraft.SYSTEM_PROMPT.lower()
+        assert "Montserrat" in promptcraft.SYSTEM_PROMPT
+
+    def test_system_prompt_requires_decorative_elements_to_specify_text_or_none(self):
+        assert "no text on it" in promptcraft.SYSTEM_PROMPT
+
+    def test_system_prompt_gives_the_no_quotation_marks_exact_text_pattern(self):
+        assert "<<...>>" in promptcraft.SYSTEM_PROMPT
+        assert "without surrounding quotation marks" in promptcraft.SYSTEM_PROMPT
+
+    def test_system_prompt_forbids_placeholder_words(self):
+        lowered = promptcraft.SYSTEM_PROMPT.lower()
+        for placeholder in ("label", "ui text", "sample text", "lorem ipsum"):
+            assert placeholder in lowered
+
+    def test_hygiene_rules_are_actually_sent_to_the_model(self, tmp_path):
+        fetcher = FixtureFetcher(responses={ENDPOINT_KEY: _ok_response({"images": [{"slot": "hero", "prompt": "x"}]})})
+        client, tw = _client(tmp_path, fetcher)
+        promptcraft.craft_prompts(
+            llm_client=client, asset_id="ck1_linkedin", destination="linkedin", headline="AI agents",
+            caption="caption", image_brief="A calm desk.", slides=None, style_guide=_style_guide(),
+            theme_playbook=None, series_token="series-xyz",
+        )
+        tw.close()
+        sent_body = json.loads(fetcher.request_bodies[0])
+        system_text = sent_body["messages"][0]["content"]
+        assert "<<...>>" in system_text
+        assert "Montserrat" in system_text
+
+
 class TestHeroPath:
     def test_single_image_destination_produces_one_hero_prompt(self, tmp_path):
         fetcher = FixtureFetcher(
@@ -87,8 +124,8 @@ class TestCarouselPath:
         ]
         payload = {
             "images": [
-                {"slot": "slide_01", "prompt": "series-tok AI Agents Explained editorial-carousel #302B87"},
-                {"slot": "slide_02", "prompt": "series-tok Step 1 Connect your CRM. editorial-carousel #302B87"},
+                {"slot": "slide_01", "prompt": "series-tok AI Agents Explained editorial-carousel #302B87."},
+                {"slot": "slide_02", "prompt": "series-tok Step 1 Connect your CRM. editorial-carousel #302B87."},
             ]
         }
         fetcher = FixtureFetcher(responses={ENDPOINT_KEY: _ok_response(payload)})
@@ -109,6 +146,91 @@ class TestCarouselPath:
         user_text = sent_body["messages"][1]["content"]
         assert "Connect your CRM." in user_text
         assert "AI Agents Explained" in user_text
+
+
+class TestValidateCraftedPrompt:
+    """W8-9 point 1c: an invalid prompt (too short/long, cut off mid-
+    sentence, or missing a required exact-text segment) is caught
+    deterministically — independent of ``llm.LlmClient``'s own
+    finish_reason check, a second line of defense."""
+
+    def test_valid_prompt_passes(self):
+        assert promptcraft.validate_crafted_prompt(
+            "A calm desk with a laptop, teal accent lighting, no people visible.",
+        ) is None
+
+    def test_too_short_fails(self):
+        reason = promptcraft.validate_crafted_prompt("Hi.")
+        assert reason is not None and "short" in reason
+
+    def test_cut_off_mid_sentence_fails(self):
+        reason = promptcraft.validate_crafted_prompt(
+            "A clean editorial composition with a bold headline and a platform built for"
+        )
+        assert reason is not None and "punctuation" in reason
+
+    def test_missing_required_exact_text_fails(self):
+        reason = promptcraft.validate_crafted_prompt(
+            "A clean editorial slide with some unrelated copy on it.", required_texts=["Connect your CRM."],
+        )
+        assert reason is not None and "exact-text" in reason
+
+    def test_present_required_exact_text_passes(self):
+        reason = promptcraft.validate_crafted_prompt(
+            "A clean editorial slide where the text <<Connect your CRM.>> appears, rendered without "
+            "surrounding quotation marks.",
+            required_texts=["Connect your CRM."],
+        )
+        assert reason is None
+
+
+class TestInvalidPromptFallback:
+    def test_carousel_with_one_invalid_slide_degrades_the_whole_set(self, tmp_path):
+        slides = [
+            {"role": "cover", "title": "AI Agents Explained", "body": ""},
+            {"role": "body", "title": "Step 1", "body": "Connect your CRM."},
+        ]
+        payload = {
+            "images": [
+                {"slot": "slide_01", "prompt": "series-tok AI Agents Explained editorial-carousel #302B87."},
+                # slide_02 is cut off mid-sentence -- no closing punctuation.
+                {"slot": "slide_02", "prompt": "series-tok Step 1 Connect your CRM. and a platform built for"},
+            ]
+        }
+        fetcher = FixtureFetcher(responses={ENDPOINT_KEY: _ok_response(payload)})
+        client, tw = _client(tmp_path, fetcher)
+        tracer = TraceWriter(tmp_path / "trace2.jsonl", "run-1")
+        result = promptcraft.craft_prompts(
+            llm_client=client, asset_id="ck1_instagram_feed", destination="instagram_feed", headline="",
+            caption="", image_brief="", slides=slides, style_guide=_style_guide(), theme_playbook=None,
+            series_token="series-tok", trace=tracer, stage="media",
+        )
+        tw.close()
+        tracer.close()
+        assert result.unavailable
+        assert not result.usable()
+        assert "slide_02" in (result.unavailable_reason or "")
+
+        decisions = [
+            json.loads(line)["detail"]["decision"]
+            for line in (tmp_path / "trace2.jsonl").read_text(encoding="utf-8").splitlines()
+            if json.loads(line)["event"] == "decision"
+        ]
+        assert any("failed validation" in d for d in decisions)
+
+    def test_hero_with_invalid_prompt_becomes_unavailable_so_caller_falls_back(self, tmp_path):
+        fetcher = FixtureFetcher(
+            responses={ENDPOINT_KEY: _ok_response({"images": [{"slot": "hero", "prompt": "Hi"}]})}
+        )
+        client, tw = _client(tmp_path, fetcher)
+        result = promptcraft.craft_prompts(
+            llm_client=client, asset_id="ck1_linkedin", destination="linkedin", headline="AI agents",
+            caption="caption", image_brief="A calm desk.", slides=None, style_guide=_style_guide(),
+            theme_playbook=None, series_token="token-abc123",
+        )
+        tw.close()
+        assert result.unavailable
+        assert result.hero_prompt() is None
 
 
 class TestGateCheck:
@@ -244,7 +366,11 @@ class TestStageWiringResumeIdempotency:
         from hypeagent import stages
 
         fetcher = FixtureFetcher(
-            responses={ENDPOINT_KEY: _ok_response({"images": [{"slot": "hero", "prompt": "crafted hero prompt"}]})}
+            responses={
+                ENDPOINT_KEY: _ok_response(
+                    {"images": [{"slot": "hero", "prompt": "A fully crafted hero prompt for testing, ending properly."}]}
+                )
+            }
         )
         ctx = self._ctx(tmp_path, fetcher)
         statuses = [
@@ -258,7 +384,7 @@ class TestStageWiringResumeIdempotency:
             first = stages._craft_media_prompts_for_run(ctx, tw, statuses)
         finally:
             tw.close()
-        assert first["ck1_linkedin"].hero_prompt() == "crafted hero prompt"
+        assert first["ck1_linkedin"].hero_prompt() == "A fully crafted hero prompt for testing, ending properly."
         assert len(fetcher.calls) == 1
 
         run_dir = ctx.logs_dir / "runs" / ctx.run_id
@@ -272,5 +398,5 @@ class TestStageWiringResumeIdempotency:
             second = stages._craft_media_prompts_for_run(ctx, tw2, statuses)
         finally:
             tw2.close()
-        assert second["ck1_linkedin"].hero_prompt() == "crafted hero prompt"
+        assert second["ck1_linkedin"].hero_prompt() == "A fully crafted hero prompt for testing, ending properly."
         assert len(fetcher.calls) == 1  # unchanged — no new network call

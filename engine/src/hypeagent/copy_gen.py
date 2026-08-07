@@ -273,6 +273,14 @@ def _build_prompt(request: CopyRequest) -> str:
 
 _CAROUSEL_DESTINATIONS = ("instagram_feed", "tiktok")
 
+# W8-9 (carousel-completeness fix): the style guide's own carousel contract
+# is 6-10 slides including a closing end-card — with the token-starvation
+# fix (larger per-node ``max_tokens``) this should hold on the first
+# attempt, but a deficient response is still handled explicitly rather than
+# silently shipped short (the live-run defect: carousels came out with as
+# few as 2-4 slides).
+MIN_CAROUSEL_SLIDES = 6
+
 
 def _platform_skeleton(style_guide: dict[str, Any], destination: str) -> dict[str, Any]:
     platforms = style_guide.get("platforms") or {}
@@ -377,6 +385,22 @@ def _build_openrouter_prompt(
     return system, "\n".join(lines), schema_hint
 
 
+def _carousel_deficiency(slides: list[dict[str, str]] | None) -> str | None:
+    """Returns a human-readable deficiency reason, or ``None`` when
+    ``slides`` satisfies the style guide's carousel contract: at least
+    :data:`MIN_CAROUSEL_SLIDES` slides, one of which is the closing
+    ``role == "end_card"``. Never checks an upper bound — the schema hint
+    already asks for at most 10, and an over-long response is not the
+    defect this check exists for."""
+    if not slides:
+        return "no slides returned for a carousel destination"
+    if len(slides) < MIN_CAROUSEL_SLIDES:
+        return f"only {len(slides)} slides returned (style guide requires at least {MIN_CAROUSEL_SLIDES}, including an end_card)"
+    if not any(s.get("role") == "end_card" for s in slides):
+        return "no slide has role='end_card' (style guide requires a closing end-card slide)"
+    return None
+
+
 def _parse_openrouter_response(data: dict[str, Any]) -> CopyResult:
     headline = str(data.get("headline", ""))
     caption = str(data.get("caption", ""))
@@ -424,12 +448,20 @@ class OpenRouterProvider:
         viral_playbook: Any | None,
         brand_identity_one_liner: str,
         node_name: str = "copywriter",
+        trace: Any = None,
+        stage: str = "copy",
     ) -> None:
         self.llm_client = llm_client
         self.style_guide = style_guide or {}
         self.viral_playbook = viral_playbook
         self.brand_identity_one_liner = brand_identity_one_liner
         self.node_name = node_name
+        # W8-9 carousel-completeness fix — ``trace`` is optional (``None``
+        # in every test that constructs this provider directly without a
+        # live pipeline run, matching ``_build_copy_provider``'s own
+        # None-safety note) so the corrective retry itself never needs one.
+        self.trace = trace
+        self.stage = stage
 
     def generate(self, request: CopyRequest) -> CopyResult:
         system, user_content, schema_hint = _build_openrouter_prompt(
@@ -443,7 +475,57 @@ class OpenRouterProvider:
             )
         except LlmError as exc:
             raise CopyProviderError(f"openrouter copywriter: {exc}") from exc
-        return _parse_openrouter_response(data)
+        result = _parse_openrouter_response(data)
+
+        if request.destination not in _CAROUSEL_DESTINATIONS:
+            return result
+        deficiency = _carousel_deficiency(result.slides)
+        if deficiency is None:
+            return result
+
+        # W8-9: one corrective retry mentioning the exact deficiency, then
+        # accept-with-trace-note (never a hard fail — a short/incomplete
+        # carousel still ships rather than blocking the whole asset).
+        corrective_content = (
+            f"{user_content}\n\nYour previous response was DEFICIENT: {deficiency}. Return a corrected "
+            "JSON response with the SAME schema that fixes this exactly: produce between "
+            f"{MIN_CAROUSEL_SLIDES} and 10 slides total, with exactly one slide having "
+            "role='end_card' as the final slide."
+        )
+        try:
+            data2 = self.llm_client.call_json(
+                self.node_name, system=system, user_parts=corrective_content, schema_hint=schema_hint,
+                purpose=(
+                    f"N-C copywriter — {request.destination} copy for {request.cluster_key} "
+                    f"(attempt {request.attempt}, carousel-completeness corrective retry)"
+                ),
+            )
+            retried = _parse_openrouter_response(data2)
+        except LlmError:
+            # The retry call itself failed -- keep the original (deficient)
+            # result rather than raising; this check never hard-fails.
+            if self.trace is not None:
+                self.trace.decision(
+                    self.stage,
+                    decision=(
+                        f"carousel completeness corrective retry failed for {request.asset_id}: {deficiency} "
+                        "— accepted with the original deficient slides"
+                    ),
+                    rule="W8-9 carousel completeness: accept-with-trace-note, never a hard fail",
+                )
+            return result
+
+        deficiency2 = _carousel_deficiency(retried.slides)
+        if deficiency2 is not None and self.trace is not None:
+            self.trace.decision(
+                self.stage,
+                decision=(
+                    f"carousel completeness deficiency persisted after 1 corrective retry for "
+                    f"{request.asset_id}: {deficiency2} — accepted with trace note, not a hard fail"
+                ),
+                rule="W8-9 carousel completeness: accept-with-trace-note, never a hard fail",
+            )
+        return retried
 
 
 # ---------------------------------------------------------------------------

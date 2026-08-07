@@ -9,6 +9,7 @@ from hypeagent.config_load import (
     find_dotenv,
     load_hard_excludes,
     load_theme_config,
+    load_theme_generation_config,
     parse_env_file,
     resolve_secret,
 )
@@ -86,6 +87,74 @@ def test_missing_config_dir_raises_config_error(tmp_path):
     config_dir = tmp_path / "does_not_exist"
     with pytest.raises(ConfigError):
         load_theme_config(config_dir)
+
+
+# ---------------------------------------------------------------------------
+# W8-9 (post-live-run token/QA-starvation fix): generation.llm's per-node
+# ``max_tokens`` overrides and ``qa_reserved_calls`` must round-trip through
+# ``load_theme_generation_config`` exactly as written in the theme YAML.
+# ---------------------------------------------------------------------------
+
+
+def _write_llm_theme_yaml(config_dir, *, extra_llm_yaml: str = "") -> None:
+    themes_dir = config_dir / "themes"
+    themes_dir.mkdir(parents=True, exist_ok=True)
+    (themes_dir / "hypedigitaly.yaml").write_text(
+        "theme:\n"
+        "  name: hypedigitaly\n"
+        "generation:\n"
+        "  llm:\n"
+        "    enabled: true\n"
+        "    default_max_tokens: 1500\n"
+        "    per_run_usd_cap: 2.00\n"
+        "    per_run_call_cap: 60\n"
+        "    qa_reserved_calls: 16\n"
+        "    node_overrides:\n"
+        "      analyst:\n"
+        "        max_tokens: 4000\n"
+        "      copywriter:\n"
+        "        max_tokens: 4000\n"
+        "      prompt_crafter:\n"
+        "        max_tokens: 6000\n"
+        "      vision_qa:\n"
+        "        max_tokens: 1000\n"
+        f"{extra_llm_yaml}",
+        encoding="utf-8",
+    )
+
+
+class TestLoadThemeGenerationConfigLlm:
+    def test_per_node_max_tokens_overrides_merge_correctly(self, tmp_path):
+        config_dir = tmp_path / "config"
+        _write_llm_theme_yaml(config_dir)
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+
+        assert generation.llm.default_max_tokens == 1500  # unchanged fallback for any node not named
+        assert generation.llm.override_for("analyst").max_tokens == 4000
+        assert generation.llm.override_for("copywriter").max_tokens == 4000
+        assert generation.llm.override_for("prompt_crafter").max_tokens == 6000
+        assert generation.llm.override_for("vision_qa").max_tokens == 1000
+        # A node with no override in the YAML falls back to the default.
+        assert generation.llm.override_for("some_future_node").max_tokens is None
+
+    def test_raised_caps_and_qa_reserve_parse_correctly(self, tmp_path):
+        config_dir = tmp_path / "config"
+        _write_llm_theme_yaml(config_dir)
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+
+        assert generation.llm.per_run_usd_cap == pytest.approx(2.00)
+        assert generation.llm.per_run_call_cap == 60
+        assert generation.llm.qa_reserved_calls == 16
+
+    def test_qa_reserved_calls_defaults_to_16_when_absent(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text(
+            "theme:\n  name: hypedigitaly\ngeneration:\n  llm:\n    enabled: true\n", encoding="utf-8",
+        )
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.qa_reserved_calls == 16
 
 
 # ---------------------------------------------------------------------------

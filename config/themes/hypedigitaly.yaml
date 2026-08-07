@@ -260,13 +260,41 @@ generation:
     # craft share ONE budget, enforced by the one shared hypeagent.llm.LlmClient
     # instance per run). Exceeding either: no more LLM calls this run: every
     # remaining node degrades to its non-LLM path, the run continues.
-    per_run_usd_cap: 1.00
-    per_run_call_cap: 20
+    # Raised from 20/$1.00 (post-live-run QA-starvation fix, run
+    # 2026-08-07_e4d8): analyst+copy+prompt-craft alone consumed the whole
+    # old cap, leaving N-E vision-QA only 4 of 11 images to check — the one
+    # broken slide (864e slide_04) was among the 7 QA never even looked at.
+    # ``qa_reserved_calls`` below carves out calls vision-QA can ALWAYS use,
+    # on top of raising the shared ceiling itself.
+    per_run_usd_cap: 2.00
+    per_run_call_cap: 60
+    # Calls set aside for N-E vision-QA only -- analyst/copywriter/prompt-
+    # crafter see an effective cap of per_run_call_cap - qa_reserved_calls
+    # (60 - 16 = 44) and can never spend into this reserve; a QA call itself
+    # may use the full 60 (hypeagent.llm.LlmClient._check_budget).
+    qa_reserved_calls: 16
     # Up to this many downloaded Virlo thumbnails/carousel panels are sent
     # to the N-A analyst as vision content-parts (base64), preferring full
     # carousel panel sets over single video thumbnails.
     analyst_max_images: 12
-    node_overrides: {}
+    # Per-node max_tokens overrides (post-live-run token-starvation fix):
+    # the old single default_max_tokens=1500 (kept below as the fallback
+    # for any node not named here) truncated the N-A analyst's output
+    # (forcing a wasteful corrective retry), several N-C copywriter
+    # responses (carousels landing at 2-4 slides instead of 6-10), and once
+    # cut an N-D image-generation prompt off mid-sentence, which the image
+    # model then filled in with hallucinated text. Vision QA's own JSON
+    # response is small (a handful of booleans/short strings) and never
+    # needed anywhere near the default.
+    node_overrides:
+      analyst:
+        max_tokens: 4000
+      copywriter:
+        max_tokens: 4000
+      prompt_crafter:
+        max_tokens: 6000
+      vision_qa:
+        max_tokens: 1000
 
   # M4/W8-9 Q4 (GOAL_ROADMAP.md) — Kie.ai standard-tier (Nano Banana 2) image
   # generation, single hero images AND per-slide carousels. Both caps are

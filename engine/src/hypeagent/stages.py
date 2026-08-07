@@ -625,7 +625,7 @@ def _build_copy_provider(ctx: RunContext, run_dir: Path, trace: TraceWriter | No
                 )
             return copy_gen.OpenRouterProvider(
                 llm_client=llm_client, style_guide=style_guide, viral_playbook=viral_playbook,
-                brand_identity_one_liner=brand_identity,
+                brand_identity_one_liner=brand_identity, trace=trace, stage="copy",
             )
     if ctx.generation.copy_provider == "openai-compatible-http" and ctx.generation.openai_compatible.enabled:
         fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
@@ -742,6 +742,7 @@ def _craft_media_prompts_for_run(
             llm_client=llm_client, asset_id=status.asset_id, destination=status.destination,
             headline=status.headline or "", caption=status.caption or "", image_brief=status.image_brief or "",
             slides=status.slides, style_guide=style_guide, theme_playbook=theme_playbook, series_token=series_token,
+            trace=trace, stage="media",
         )
         if panel is not None:
             prompt_set = promptcraft.gate_check_prompts(prompt_set, snapshot=panel.snapshot, hard_excludes=hard_excludes)

@@ -740,6 +740,16 @@ class _RunAccounting:
     ledger_recorded_usd: float = 0.0
     balance_fetched: bool = False
     circuit_tripped: bool = False
+    # W8-9 (spend-report ×N inflation fix): the last credit balance actually
+    # observed (starts as ``result.balance_before`` on the first
+    # reconciliation) -- lets :meth:`MediaGenerator._check_circuit_breaker`
+    # report the balance movement attributable to JUST the submission that
+    # triggered this reconciliation, not the cumulative movement since the
+    # run started (the previous behaviour, which made every ``spend`` trace
+    # event repeat the running total instead of that submission's own
+    # delta -- summing the events then inflated the reported run spend by a
+    # multiple of the true total).
+    last_balance: float | None = None
 
 
 def _parse_asset_slot(asset_slot: str) -> tuple[str, str]:
@@ -762,9 +772,19 @@ QA_SYSTEM_PROMPT = (
     "You are the Vision-QA gate (N-E) for HypeDigitaly's AI-agency social content pipeline "
     "(FLOW_MAP.md's post-generation QA node). You are shown one generated image plus the exact "
     "text that was supposed to render on it, verbatim, and the visual archetype/register it was "
-    "meant to match. Judge strictly but fairly: minor glyph-rendering artifacts are fine, but the "
-    "actual words and any numbers must be present and legible, and the composition must plausibly "
-    "match the named archetype/register in mood and style. Respond with ONLY the JSON schema given."
+    "meant to match. Judge strictly but fairly: minor glyph-rendering artifacts (slightly rough "
+    "letterforms, small kerning oddities) are fine, but you must be STRICT about the actual words.\n\n"
+    "text_matches must be true ONLY if EVERY required string is rendered EXACTLY — word-for-word, "
+    "in full, with no duplication (e.g. 'to follow-up to follow-up'), no omission, no garbling, and "
+    "no invented/substituted words. If even one required string is missing, cut off, duplicated, or "
+    "altered, text_matches MUST be false. Decorative or background text that is not one of the "
+    "required strings (e.g. fake screenshot chrome, ambient UI-looking text in the background) may "
+    "be noted in mismatches WITHOUT failing text_matches — but any prominent garbled foreground text "
+    "at display size (an unreadable label, an invented word, nonsense characters standing in for "
+    "real text) MUST still fail text_matches, even if it is not one of the required strings, because "
+    "it is a visible defect a viewer would notice. Always list every mismatch you observe — required "
+    "or decorative — in the structured mismatches list; do not silently pass an image with visible "
+    "text defects. Respond with ONLY the JSON schema given."
 )
 
 
@@ -828,6 +848,7 @@ def run_vision_qa(
     try:
         data = llm_client.call_json(
             node_name, system=QA_SYSTEM_PROMPT, user_parts=user_parts, schema_hint=schema_hint, purpose=purpose,
+            is_qa=True,
         )
     except LlmError as exc:
         return VisionQaResult(status="skipped", skip_reason=f"{type(exc).__name__}: {exc}")
@@ -1077,43 +1098,69 @@ class MediaGenerator:
         # no-submission outcomes (capped, already-exists) are handled by the
         # returns above.
         acct.count_run += 1
+        submission_cost_usd = 0.0
         if asset_status.status in ("generated", "held-qa-failed"):
-            cost = asset_status.observed_cost_usd or route.price_usd
-            acct.spent_usd_run += cost
-            acct.ledger_recorded_usd += cost
+            submission_cost_usd = asset_status.observed_cost_usd or route.price_usd
+            acct.spent_usd_run += submission_cost_usd
+            acct.ledger_recorded_usd += submission_cost_usd
         elif asset_status.status in ("pending — adopted by a later run", "submitted-unknown"):
-            acct.spent_usd_run += route.price_usd
-            acct.ledger_recorded_usd += route.price_usd
+            submission_cost_usd = route.price_usd
+            acct.spent_usd_run += submission_cost_usd
+            acct.ledger_recorded_usd += submission_cost_usd
             if asset_status.status == "pending — adopted by a later run":
                 result.pending_count += 1
             else:
                 result.submitted_unknown_count += 1
         # A definite provider-reported failure is not charged per Kie's
-        # documentation (§5.6); nothing added to spend for "failed — *".
+        # documentation (§5.6); nothing added to spend for "failed — *"
+        # (``submission_cost_usd`` stays 0.0).
 
-        if self._check_circuit_breaker(result, acct.ledger_recorded_usd):
+        if self._check_circuit_breaker(result, acct, submission_cost_usd):
             acct.circuit_tripped = True
         return asset_status
 
-    def _check_circuit_breaker(self, result: MediaStageResult, ledger_recorded_usd: float) -> bool:
+    def _check_circuit_breaker(
+        self, result: MediaStageResult, acct: "_RunAccounting", submission_cost_usd: float
+    ) -> bool:
+        """Runs after every new submission this call. The trip decision
+        itself stays CUMULATIVE, unchanged from before this fix (§8.13: it
+        compares the TOTAL observed balance drift since this run's first
+        submission against the TOTAL ledger-recorded spend so far -- a
+        divergence trips regardless of which single submission it
+        accumulated across).
+
+        What the fix changes is the ``spend`` trace EVENT this emits: it now
+        records only the DELTA this one submission contributed (to both
+        ledger-recorded cost and observed balance movement), never the
+        running cumulative total -- summing ``ledger_recorded`` across every
+        ``spend`` event for a run now recovers the true total run spend
+        instead of a multiple of it (the live-run defect: cumulative values
+        0.04, 0.08, ... summed to $2.64 when the true spend was $0.44)."""
         balance_now = self.kie.get_credit_balance(purpose="post-submission balance reconciliation")
         result.balance_after = balance_now
         if result.balance_before is None or balance_now is None:
             return False
-        delta_credits = result.balance_before - balance_now
-        delta_usd = delta_credits * self.registry.credit_usd
-        denom = max(ledger_recorded_usd, 0.01)
-        relative_divergence = abs(delta_usd - ledger_recorded_usd) / denom
+
+        delta_credits_cumulative = result.balance_before - balance_now
+        delta_usd_cumulative = delta_credits_cumulative * self.registry.credit_usd
+        denom = max(acct.ledger_recorded_usd, 0.01)
+        relative_divergence = abs(delta_usd_cumulative - acct.ledger_recorded_usd) / denom
+
+        previous_balance = acct.last_balance if acct.last_balance is not None else result.balance_before
+        balance_delta_this_submission = (previous_balance - balance_now) * self.registry.credit_usd
+        acct.last_balance = balance_now
+
         self.trace.spend(
-            self.stage, wallet="media", expected=ledger_recorded_usd, ledger_recorded=ledger_recorded_usd,
-            balance_delta=delta_usd,
+            self.stage, wallet="media", expected=submission_cost_usd, ledger_recorded=submission_cost_usd,
+            balance_delta=balance_delta_this_submission,
         )
         if relative_divergence > self.config.unexplained_spend_threshold:
             self.trace.degrade(
                 self.stage,
                 condition=(
-                    f"unexplained-spend: ledger recorded ${ledger_recorded_usd:.4f}, observed balance delta "
-                    f"${delta_usd:.4f} ({relative_divergence:.0%} divergence) — halting new submissions"
+                    f"unexplained-spend: ledger recorded ${acct.ledger_recorded_usd:.4f} cumulative this "
+                    f"run, observed balance delta ${delta_usd_cumulative:.4f} cumulative "
+                    f"({relative_divergence:.0%} divergence) — halting new submissions"
                 ),
                 caused="W2-02 circuit breaker (simplified): no new media submissions for the remainder of this run",
             )
