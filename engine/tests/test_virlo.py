@@ -628,6 +628,141 @@ class TestVirloMediaDownload:
             trace.close()
 
 
+class TestVirloMediaManifest:
+    """W8-10 Phase 8 (dynamic inspiration): the image<->item join manifest
+    -- written to the run dir (never inside ``virlo_media/`` itself, so it
+    never perturbs that directory's own file-count/retention semantics,
+    see ``TestVirloMediaDownload`` above)."""
+
+    def _fetcher_with_media(self) -> FixtureFetcher:
+        return FixtureFetcher(
+            responses={
+                f"v1/agents/{V2_MONITOR_ID}/videos": _fr(FIXTURES / "virlo_videos_small.json"),
+                f"v1/agents/{V2_MONITOR_ID}/slideshows": _fr(FIXTURES / "virlo_slideshows_small.json"),
+                f"v1/agents/{V2_MONITOR_ID}": _fr(FIXTURES / "virlo_agent_monitor_v2.json"),
+                "cdn.example.com/panels/fake-slideshow-id-1/panel1.webp": FetchResponse(200, {}, b"panel-1-bytes", 1),
+                "cdn.example.com/panels/fake-slideshow-id-1/panel2.webp": FetchResponse(200, {}, b"panel-2-bytes", 1),
+                "cdn.example.com/panels/fake-slideshow-id-1/panel3.webp": FetchResponse(200, {}, b"panel-3-bytes", 1),
+                "cdn.example.com/thumbs/fake-video-id-1.jpg": FetchResponse(200, {}, b"thumb-1-bytes", 1),
+                "cdn.example.com/thumbs/fake-video-id-2.jpg": FetchResponse(200, {}, b"thumb-2-bytes", 1),
+            }
+        )
+
+    def test_manifest_written_next_to_the_corpus_not_inside_virlo_media(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        run_id = "2026-08-10_manifest1"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        fetcher = self._fetcher_with_media()
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_id=run_id, run_dir=run_dir)
+        try:
+            virlo.collect(
+                ctx, family="short_form_trends", key_path=key_path,
+                monitor_ids=[V2_MONITOR_ID], trends_digest_enabled=False,
+                subpath_page_cap=6, media_download_cap=4, budget_max_calls=20,
+            )
+            manifest_path = run_dir / virlo.VIRLO_MEDIA_MANIFEST_FILENAME
+            assert manifest_path.exists()
+            media_dir = tmp_path / "logs" / "artifacts" / "raw" / run_id / "virlo_media"
+            # Still exactly 4 media files -- the manifest lives elsewhere.
+            assert len(list(media_dir.glob("*"))) == 4
+            assert not (media_dir / virlo.VIRLO_MEDIA_MANIFEST_FILENAME).exists()
+        finally:
+            store.close()
+            trace.close()
+
+    def test_manifest_join_is_correct_for_videos_and_slideshow_panels(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        run_id = "2026-08-10_manifest2"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        fetcher = self._fetcher_with_media()
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_id=run_id, run_dir=run_dir)
+        try:
+            virlo.collect(
+                ctx, family="short_form_trends", key_path=key_path,
+                monitor_ids=[V2_MONITOR_ID], trends_digest_enabled=False,
+                subpath_page_cap=6, media_download_cap=4, budget_max_calls=20,
+            )
+            entries = virlo.load_media_manifest(run_dir)
+            assert len(entries) == 4
+
+            video_entries = [e for e in entries if e.item_kind == "video"]
+            slideshow_entries = [e for e in entries if e.item_kind == "slideshow"]
+            assert len(video_entries) == 1
+            assert len(slideshow_entries) == 3
+
+            video_entry = video_entries[0]
+            assert video_entry.item_id == "fake-video-id-1"
+            assert video_entry.views == 4489565
+            assert video_entry.panel_index is None
+            # Linked via the theme's own evidence_video_ids.
+            assert video_entry.theme_key == "AI Agents for Business Automation and Outbound Sales"
+            assert video_entry.caption == "This AI agent replaced my entire sales team"
+
+            panel_indexes = sorted(e.panel_index for e in slideshow_entries)
+            assert panel_indexes == [0, 1, 2]
+            for e in slideshow_entries:
+                assert e.item_id == "fake-slideshow-id-1"
+                assert e.views == 890000
+                # Slideshows carry no evidence_video_ids link on this API shape.
+                assert e.theme_key is None
+            captions = {e.panel_index: e.caption for e in slideshow_entries}
+            assert captions[0] == "1. AI agent that qualifies leads"
+            assert captions[1] == "2. Voice AI that books meetings"
+            assert captions[2] == "3. AI that writes cold emails"
+
+            # Every manifest filename actually exists on disk.
+            media_dir = tmp_path / "logs" / "artifacts" / "raw" / run_id / "virlo_media"
+            on_disk = {p.name for p in media_dir.glob("*")}
+            assert {e.filename for e in entries} == on_disk
+        finally:
+            store.close()
+            trace.close()
+
+    def test_manifest_is_registered_for_the_same_retention_job_as_media(self, tmp_path):
+        """The manifest lives in the run dir, alongside virlo_corpus.yaml --
+        it is registered for the SAME 30-day raw-artifact retention as the
+        media files it describes (like ``virlo_corpus.yaml`` already is),
+        so it does not outlive the media it joins."""
+        key_path = _key_path(tmp_path)
+        run_id = "2026-08-10_manifest3"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        fetcher = self._fetcher_with_media()
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_id=run_id, run_dir=run_dir)
+        try:
+            virlo.collect(
+                ctx, family="short_form_trends", key_path=key_path,
+                monitor_ids=[V2_MONITOR_ID], trends_digest_enabled=False,
+                subpath_page_cap=6, media_download_cap=4, budget_max_calls=20,
+            )
+            assert (run_dir / virlo.VIRLO_MEDIA_MANIFEST_FILENAME).exists()
+
+            from datetime import datetime, timedelta
+
+            store.run_expiry_job(now=datetime.now().astimezone() + timedelta(days=31))
+            assert not (run_dir / virlo.VIRLO_MEDIA_MANIFEST_FILENAME).exists()
+        finally:
+            store.close()
+            trace.close()
+
+    def test_no_media_downloaded_writes_no_manifest(self, tmp_path):
+        key_path = _key_path(tmp_path)
+        run_id = "2026-08-10_manifest4"
+        run_dir = tmp_path / "logs" / "runs" / run_id
+        fetcher = self._fetcher_with_media()
+        ctx, store, trace = _ctx(tmp_path, fetcher, run_id=run_id, run_dir=run_dir)
+        try:
+            virlo.collect(
+                ctx, family="short_form_trends", key_path=key_path,
+                monitor_ids=[V2_MONITOR_ID], trends_digest_enabled=False,
+                subpath_page_cap=6, media_download_cap=0, budget_max_calls=20,
+            )
+            assert not (run_dir / virlo.VIRLO_MEDIA_MANIFEST_FILENAME).exists()
+            assert virlo.load_media_manifest(run_dir) == []
+        finally:
+            store.close()
+            trace.close()
+
+
 class TestVirloDigestOffDefault:
     def test_trends_digest_enabled_false_never_calls_digest_endpoint(self, tmp_path):
         key_path = _key_path(tmp_path)

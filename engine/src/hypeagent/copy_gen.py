@@ -41,6 +41,8 @@ and immediately suppress everything as "generated previously" (§2.8a).
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -93,6 +95,15 @@ class CopyRequest:
     disclosure_requirement: str
     snapshot_id: str
     prior_failing_spans: list[str] = field(default_factory=list)
+    # W8-10 Phase 1 (copywriter-audit finding: attempt 1 of run e4d8 came
+    # back IN CZECH, a silent locale flip -- the prompt never stated an
+    # output language at all). Goal-scoped to EN; the field exists so a
+    # future non-EN goal has somewhere to put it without a new request shape.
+    language: str = "en"
+    # W8-10 Phase 5 (``generation.post_mix``): value_only | playbook |
+    # promotional — mirrors ``SpinResult.post_type`` (``build_copy_request``
+    # carries it straight through).
+    post_type: str = "promotional"
 
     def to_yaml_dict(self) -> dict[str, Any]:
         return {
@@ -119,6 +130,8 @@ class CopyRequest:
             "disclosure_requirement": self.disclosure_requirement,
             "snapshot_id": self.snapshot_id,
             "prior_failing_spans": self.prior_failing_spans,
+            "language": self.language,
+            "post_type": self.post_type,
             "response_shape_expected": {
                 "headline": "string, image overlay text, <= 12 words",
                 "caption": "string, <= 2200 chars, must include the AI-content disclosure line",
@@ -292,7 +305,14 @@ def _viral_playbook_section(viral_playbook: Any | None, topic: str) -> str:
     """``viral_playbook`` is an ``analysis.ViralPlaybook`` — typed ``Any``
     here (duck-typed via ``theme_playbook``/``skipped``/``degraded``) so
     this module never has to import ``analysis`` (which itself imports
-    ``llm``, imported here already) purely for a type annotation."""
+    ``llm``, imported here already) purely for a type annotation.
+
+    W8-10 Phase 5: also folds in the run-level fields (``connecting_thread``,
+    ``viral_tactics_digest``, ``do_not_do``) the marketer audit found were
+    fetched every run and never consumed by copy — read via ``getattr`` (not
+    an import of ``hypeagent.analysis``) so a future field ``analysis.py``
+    adds to either the per-theme or the global playbook shape renders here
+    automatically, with no further change needed in this module."""
     if viral_playbook is None:
         return "No viral playbook available this run — ground purely in the style guide and your own judgment."
     theme_pb = None
@@ -306,7 +326,132 @@ def _viral_playbook_section(viral_playbook: Any | None, topic: str) -> str:
                 "and your own judgment."
             )
         return "No matching theme in this run's viral playbook — ground purely in the style guide and your own judgment."
-    return yaml.safe_dump(theme_pb.to_yaml_dict(), allow_unicode=True, sort_keys=False)
+
+    payload: dict[str, Any] = dict(theme_pb.to_yaml_dict())
+    connecting_thread = getattr(viral_playbook, "connecting_thread", None)
+    if connecting_thread:
+        payload["connecting_thread"] = connecting_thread
+    viral_tactics_digest = getattr(viral_playbook, "viral_tactics_digest", None)
+    if viral_tactics_digest:
+        payload["viral_tactics_digest"] = viral_tactics_digest
+    do_not_do = getattr(viral_playbook, "do_not_do", None)
+    if do_not_do:
+        payload["do_not_do"] = do_not_do
+    return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 1 — exemplar/excerpt injection (copywriter-audit finding #4:
+# ``exemplar_pool_paths``/``excerpt_refs`` were carried on every request and
+# NEVER reached the prompt at all). Voice/rhythm anchors only — framed
+# explicitly as "match the rhythm, not the content" so the model never
+# mistakes an exemplar for a source of claims or topics.
+# ---------------------------------------------------------------------------
+
+_EXEMPLAR_CHAR_CAP = 4000
+_MAX_RESOLVED_EXCERPTS = 3
+
+
+def _load_exemplar_block(
+    exemplar_pool_paths: list[str],
+    excerpt_refs: list[str],
+    *,
+    exemplar_base_dir: Path | None,
+    excerpt_resolver: Callable[[str], str | None] | None,
+) -> str:
+    """Loads each configured exemplar file's raw text (truncated to
+    :data:`_EXEMPLAR_CHAR_CAP` chars) plus up to
+    :data:`_MAX_RESOLVED_EXCERPTS` resolved excerpt texts. A missing/
+    unreadable exemplar file is skipped with a note, never an error — this
+    is a voice aid, not a new failure surface. Returns ``""`` when nothing
+    at all resolves (no exemplar paths configured, none readable, no
+    resolver given)."""
+    sections: list[str] = []
+    notes: list[str] = []
+
+    for raw_path in exemplar_pool_paths:
+        candidates = [Path(raw_path)]
+        if exemplar_base_dir is not None and not Path(raw_path).is_absolute():
+            candidates.insert(0, Path(exemplar_base_dir) / raw_path)
+        text: str | None = None
+        for candidate in candidates:
+            try:
+                if candidate.exists():
+                    text = candidate.read_text(encoding="utf-8")
+                    break
+            except OSError:
+                continue
+        if text is None:
+            notes.append(f"(exemplar file not found/unreadable, skipped: {raw_path})")
+            continue
+        sections.append(f"--- exemplar: {raw_path} ---\n{text[:_EXEMPLAR_CHAR_CAP]}")
+
+    if excerpt_resolver is not None:
+        resolved = 0
+        for ref in excerpt_refs:
+            if resolved >= _MAX_RESOLVED_EXCERPTS:
+                break
+            try:
+                text = excerpt_resolver(ref)
+            except Exception:
+                text = None
+            if not text:
+                continue
+            sections.append(f"--- excerpt: {ref} ---\n{text[:_EXEMPLAR_CHAR_CAP]}")
+            resolved += 1
+
+    if not sections and not notes:
+        return ""
+
+    header = (
+        "Voice/rhythm exemplars — match the SENTENCE RHYTHM and VOCABULARY LEVEL of the material "
+        "below; do NOT reuse its exact phrases, its topics, or its claims:"
+    )
+    body = "\n\n".join(sections) if sections else "(no exemplar text resolved this run)"
+    block = f"{header}\n\n{body}"
+    if notes:
+        block += "\n\n" + "\n".join(notes)
+    return block
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 1 — the copywriter voice overhaul. The old prompt was 100%
+# compliance and 0% voice (copywriter audit): no speaker, no register, no
+# rhythm, and it literally handed the model the hedge phrase "creators are
+# reporting..." (used 5x across 4 assets) plus an anxiety clause that made
+# the model narrate its own compliance reasoning INTO the copy. Every
+# compliance rule below is kept — restated plainly, without threat framing —
+# alongside 12 countable voice rules the model is asked to self-check.
+# ---------------------------------------------------------------------------
+
+_VOICE_RULES_BLOCK = (
+    "VOICE RULES — countable, self-check every one before you answer:\n"
+    "1. First-person singular throughout. You are a named person writing this yourself (Pavel "
+    "Čermák, HypeDigitaly's founder), on your phone, between calls — not a brand account.\n"
+    "2. Your opening line is concrete and specific, grounded in something REAL from this run's "
+    "viral playbook below (a real hook, a real tool, a real number someone else's post used). Do "
+    "NOT invent a first-person incident and present it as fact — no \"this happened to me last "
+    "week\" unless the material below genuinely gives you that scene. A fabricated anecdote is "
+    "dishonest, not just against the rules.\n"
+    "3. Vary sentence rhythm: at least 3 sentences under 6 words, and no two consecutive sentences "
+    "share the same grammatical shape.\n"
+    "4. At most ONE antithesis shape (\"it's not X, it's Y\" / \"X isn't Y, it's Z\") in the whole "
+    "asset — count your own uses before answering.\n"
+    "5. At most one em-dash per 150 words, and never a parenthetical pair of em-dashes.\n"
+    "6. Never write a three-item parallel list in prose (the \", X, and Y\" shape).\n"
+    "7. If you borrow a number from someone else's post (the viral playbook — never your own "
+    "results), attribute it exactly once, as a single line at the very END of the asset, in your "
+    "own words — never inline, and never explain to the reader why you're allowed to use it.\n"
+    "8. Include exactly one concrete, usable artifact: a verbatim prompt, a verbatim search string, "
+    "or a specific tool plus its exact setting. An abstract noun (workflow, system, layer, motion, "
+    "engine) does not satisfy this — it must be something the reader can literally copy and use.\n"
+    "9. The destination platform skeleton below is a MENU of beats, not a fill-in-the-blank form — "
+    "use it as a guide and deliberately deviate from it in at least one visible way.\n"
+    "10. Exactly one ask (one CTA) in the whole asset. Add a P.S. only if it carries genuinely new "
+    "information — never a repeat, never a generic mindset throwaway line.\n"
+    "11. Before you answer, re-read your own draft and delete the 3 weakest sentences.\n"
+    "12. Output language: {language}."
+)
 
 
 def _build_openrouter_prompt(
@@ -315,47 +460,102 @@ def _build_openrouter_prompt(
     style_guide: dict[str, Any],
     viral_playbook: Any | None,
     brand_identity_one_liner: str,
+    exemplar_base_dir: Path | None = None,
+    excerpt_resolver: Callable[[str], str | None] | None = None,
 ) -> tuple[str, str, str]:
     """Returns ``(system, user_content, schema_hint)`` for
     ``LlmClient.call_json``."""
     wants_slides = request.destination in _CAROUSEL_DESTINATIONS
     skeleton = _platform_skeleton(style_guide, request.destination)
+    is_value_only = request.post_type == "value_only"
+
+    # W8-10 Phase 5: a value_only post drops the brand entirely from the
+    # prompt's identity line — the @hypedigitaly handle is image-direction
+    # only (a small watermark), never named in copy.
+    effective_brand = "" if is_value_only else brand_identity_one_liner
+    brand_line = f"Brand: {effective_brand} " if effective_brand else ""
 
     system = (
-        "You are the Copywriter (N-C) for HypeDigitaly's AI-agency social content pipeline "
-        "(FLOW_MAP.md node N-C). "
-        f"Brand: {brand_identity_one_liner} "
-        "You write ONLY within the rules given below — you never state a price or a price-shaped "
-        "figure, you never claim a number that is not in the allowed_facts list, you never use "
-        "superlative/guarantee/therapeutic-outcome language, and you ALWAYS include the exact "
-        f'disclosure line "{AI_DISCLOSURE_LINE}" in the caption. Trend-corpus numbers belong to the '
-        'trend, not to us — attribute them explicitly ("creators are reporting..."), never claim '
-        "them as our own results. Every deterministic rule you violate will be caught by a claim "
-        "gate and sent back to you for repair, so follow them exactly the first time."
+        f"{brand_line}"
+        f"{_VOICE_RULES_BLOCK.format(language=request.language)}\n\n"
+        "COMPLIANCE — plain facts about this pipeline, not a threat: you never state a price or a "
+        "price-shaped figure; you never claim a number that is not in the allowed_facts list below; "
+        "you never use superlative, guarantee, or therapeutic-outcome language; you always include "
+        f'the exact disclosure line "{AI_DISCLOSURE_LINE}" in the caption; you never mention anything '
+        "in the hard-excludes or negative-capabilities lists below. A deterministic gate checks every "
+        "one of these after you answer and tells you exactly what to fix if something slips through."
     )
 
-    lines: list[str] = [
-        f"Destination: {request.destination}",
-        f"Topic: {request.topic}",
-        f"ICP: {request.icp_text}",
-        f"Pain: {request.pain}",
-        f"Offer: {request.offer_text or 'none — value-only (far mapping distance: no product CTA)'}",
-        f"Mapping distance: {request.mapping_distance} (value_only={request.value_only})",
-        f"CTA class: {request.cta_class}; CTA text: {request.cta_text}",
-        f"Pricing policy: {request.pricing_policy_line}",
-        f"Allowed facts (ONLY these numbers/claims are citable): "
-        f"{json.dumps(request.allowed_facts, ensure_ascii=False)}",
-        f"Negative capabilities (never imply): {json.dumps(request.negative_capabilities, ensure_ascii=False)}",
-        f"Hard excludes (never mention): {json.dumps(request.hard_excludes, ensure_ascii=False)}",
-        f"Disclosure requirement: {request.disclosure_requirement}",
-        "",
-        "Destination platform skeleton (style_guide.yaml — follow this shape exactly):",
-        yaml.safe_dump(skeleton, allow_unicode=True, sort_keys=False),
-        "",
+    allowed_facts_label = (
+        "Allowed facts — a CEILING only: you must never exceed these numbers/claims, but you are "
+        "not required to use any of them"
+        if is_value_only
+        else "Allowed facts (ONLY these numbers/claims are citable)"
+    )
+
+    lines: list[str] = []
+    playbook_block = [
         "This run's viral playbook for this topic (winning hooks/formats/visual archetypes/numbers "
-        "seen in the niche this week):",
+        "seen in the niche this week — for a value-only post, this IS your substrate; ground the "
+        "whole asset in it):",
         _viral_playbook_section(viral_playbook, request.topic),
+        "",
     ]
+    if is_value_only:
+        # Phase 5: the playbook becomes the PRIMARY substrate for a
+        # value-only post — placed first, ahead of even the destination/
+        # topic housekeeping lines.
+        lines.extend(playbook_block)
+
+    lines.extend(
+        [
+            f"Destination: {request.destination}",
+            f"Topic: {request.topic}",
+            f"ICP: {request.icp_text}",
+            f"Pain: {request.pain}",
+            f"Offer: {request.offer_text or 'none — value-only (far mapping distance: no product CTA)'}",
+            f"Mapping distance: {request.mapping_distance} (value_only={request.value_only})",
+            f"Post type: {request.post_type}",
+            f"CTA class: {request.cta_class}; CTA text: {request.cta_text}",
+            f"Pricing policy: {request.pricing_policy_line}",
+            f"{allowed_facts_label}: {json.dumps(request.allowed_facts, ensure_ascii=False)}",
+            f"Negative capabilities (never imply): {json.dumps(request.negative_capabilities, ensure_ascii=False)}",
+            f"Hard excludes (never mention): {json.dumps(request.hard_excludes, ensure_ascii=False)}",
+            f"Disclosure requirement: {request.disclosure_requirement}",
+            "",
+            "Destination platform skeleton (style_guide.yaml — a MENU of beats to draw from, not a "
+            "form to fill in; deviate from it in at least one visible way):",
+            yaml.safe_dump(skeleton, allow_unicode=True, sort_keys=False),
+            "",
+        ]
+    )
+    if is_value_only:
+        lines.append(
+            "This is a VALUE-ONLY trend post: do not mention the brand, its products, or any brand "
+            "URL anywhere in the copy. The @hypedigitaly handle appears only as a small visual "
+            f'watermark (image direction), and the "{AI_DISCLOSURE_LINE}" disclosure line is still '
+            "mandatory in the caption."
+        )
+        lines.append("")
+    elif request.post_type == "playbook":
+        lines.append(
+            "This is a PLAYBOOK/lead-magnet post: your one ask (CTA) must be a comment-keyword "
+            "lead-magnet ask (e.g. \"Comment 'WORD' and I'll send you the prompt set\") — not a link, "
+            "not a generic follow ask."
+        )
+        lines.append("")
+
+    if not is_value_only:
+        lines.extend(playbook_block)
+
+    exemplar_block = _load_exemplar_block(
+        request.exemplar_pool_paths, request.excerpt_refs,
+        exemplar_base_dir=exemplar_base_dir, excerpt_resolver=excerpt_resolver,
+    )
+    if exemplar_block:
+        lines.append(exemplar_block)
+        lines.append("")
+
     if request.prior_failing_spans:
         lines.append("")
         lines.append(
@@ -398,6 +598,62 @@ def _carousel_deficiency(slides: list[dict[str, str]] | None) -> str | None:
         return f"only {len(slides)} slides returned (style guide requires at least {MIN_CAROUSEL_SLIDES}, including an end_card)"
     if not any(s.get("role") == "end_card" for s in slides):
         return "no slide has role='end_card' (style guide requires a closing end-card slide)"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 1 — the numbered-promise hard gate (marketer-audit finding:
+# a "6 prompts" cover delivering 1 prompt is trust-damaging; a generic
+# short/incomplete carousel still ships with a trace note, but a BROKEN
+# NUMBERED PROMISE never should). Distinct from — and additional to —
+# ``_carousel_deficiency`` above: this can hard-fail the asset to "held"
+# even when the generic slide-count/end-card contract is satisfied.
+# ---------------------------------------------------------------------------
+
+_NUMBERED_PROMISE_RE = re.compile(
+    r"\b(\d+)\s+(prompts?|steps?|tools?|ways?|apps?|tips?)\b", re.IGNORECASE
+)
+
+
+def _numbered_promise(headline: str, slides: list[dict[str, str]] | None) -> tuple[int, str] | None:
+    """Returns ``(N, matched phrase)`` for the first numbered promise found
+    in the headline or the cover slide's title — ``None`` when no such
+    promise is made at all."""
+    texts = [headline or ""]
+    if slides:
+        for slide in slides:
+            if slide.get("role") == "cover":
+                texts.append(slide.get("title") or "")
+                break
+    for text in texts:
+        match = _NUMBERED_PROMISE_RE.search(text)
+        if match:
+            return int(match.group(1)), match.group(0)
+    return None
+
+
+def _content_slide_count(slides: list[dict[str, str]] | None) -> int:
+    if not slides:
+        return 0
+    return sum(1 for s in slides if s.get("role") not in ("cover", "end_card"))
+
+
+def _numbered_promise_deficiency(headline: str, slides: list[dict[str, str]] | None) -> str | None:
+    """Returns a human-readable deficiency reason when the headline/cover
+    promises "N <plural noun>" (prompts/steps/tools/ways/apps/tips) but the
+    carousel delivers fewer than N content slides (every slide that is
+    neither the cover nor the end_card) — ``None`` when there is no numbered
+    promise at all, or the promise is honoured."""
+    promise = _numbered_promise(headline, slides)
+    if promise is None:
+        return None
+    count, phrase = promise
+    delivered = _content_slide_count(slides)
+    if delivered < count:
+        return (
+            f'headline/cover promises "{phrase}" ({count}) but only {delivered} content slide(s) were '
+            "delivered — numbered-promise hard gate"
+        )
     return None
 
 
@@ -450,6 +706,8 @@ class OpenRouterProvider:
         node_name: str = "copywriter",
         trace: Any = None,
         stage: str = "copy",
+        exemplar_base_dir: Path | None = None,
+        excerpt_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.style_guide = style_guide or {}
@@ -462,11 +720,18 @@ class OpenRouterProvider:
         # None-safety note) so the corrective retry itself never needs one.
         self.trace = trace
         self.stage = stage
+        # W8-10 Phase 1 — exemplar/excerpt injection: both optional and
+        # ``None``-safe (every test that constructs this provider directly
+        # without wiring a real run's config dir / store just gets no
+        # exemplar block, exactly like today).
+        self.exemplar_base_dir = exemplar_base_dir
+        self.excerpt_resolver = excerpt_resolver
 
-    def generate(self, request: CopyRequest) -> CopyResult:
+    def generate(self, request: CopyRequest) -> CopyResult | None:
         system, user_content, schema_hint = _build_openrouter_prompt(
             request, style_guide=self.style_guide, viral_playbook=self.viral_playbook,
             brand_identity_one_liner=self.brand_identity_one_liner,
+            exemplar_base_dir=self.exemplar_base_dir, excerpt_resolver=self.excerpt_resolver,
         )
         try:
             data = self.llm_client.call_json(
@@ -480,17 +745,18 @@ class OpenRouterProvider:
         if request.destination not in _CAROUSEL_DESTINATIONS:
             return result
         deficiency = _carousel_deficiency(result.slides)
-        if deficiency is None:
+        promise_deficiency = _numbered_promise_deficiency(result.headline, result.slides)
+        if deficiency is None and promise_deficiency is None:
             return result
 
-        # W8-9: one corrective retry mentioning the exact deficiency, then
-        # accept-with-trace-note (never a hard fail — a short/incomplete
-        # carousel still ships rather than blocking the whole asset).
+        # One corrective retry mentioning the exact deficiency/deficiencies.
+        deficiency_texts = [d for d in (deficiency, promise_deficiency) if d is not None]
         corrective_content = (
-            f"{user_content}\n\nYour previous response was DEFICIENT: {deficiency}. Return a corrected "
-            "JSON response with the SAME schema that fixes this exactly: produce between "
+            f"{user_content}\n\nYour previous response was DEFICIENT: {'; '.join(deficiency_texts)}. Return a "
+            "corrected JSON response with the SAME schema that fixes this exactly: produce between "
             f"{MIN_CAROUSEL_SLIDES} and 10 slides total, with exactly one slide having "
-            "role='end_card' as the final slide."
+            "role='end_card' as the final slide, and enough content slides (neither cover nor "
+            "end_card) to honour any number your headline or cover title promises."
         )
         try:
             data2 = self.llm_client.call_json(
@@ -502,8 +768,23 @@ class OpenRouterProvider:
             )
             retried = _parse_openrouter_response(data2)
         except LlmError:
-            # The retry call itself failed -- keep the original (deficient)
-            # result rather than raising; this check never hard-fails.
+            # The retry call itself failed. A generic (non-numbered-promise)
+            # deficiency still never hard-fails -- keep the original result.
+            # A numbered-promise deficiency DOES hard-fail even here: we
+            # cannot verify the promise was fixed, and shipping "6 prompts"
+            # with 1 delivered is the exact trust-damaging defect this gate
+            # exists to stop.
+            if promise_deficiency is not None:
+                if self.trace is not None:
+                    self.trace.decision(
+                        self.stage,
+                        decision=(
+                            f"numbered-promise hard gate for {request.asset_id}: {promise_deficiency} — "
+                            "corrective retry itself failed, held rather than shipping the broken promise"
+                        ),
+                        rule="W8-10 numbered-promise hard gate: HARD-fail to held, never accept-with-note",
+                    )
+                return None
             if self.trace is not None:
                 self.trace.decision(
                     self.stage,
@@ -514,6 +795,19 @@ class OpenRouterProvider:
                     rule="W8-9 carousel completeness: accept-with-trace-note, never a hard fail",
                 )
             return result
+
+        promise_deficiency2 = _numbered_promise_deficiency(retried.headline, retried.slides)
+        if promise_deficiency2 is not None:
+            if self.trace is not None:
+                self.trace.decision(
+                    self.stage,
+                    decision=(
+                        f"numbered-promise hard gate for {request.asset_id}: {promise_deficiency2} persisted "
+                        "after 1 corrective retry — HARD-fail to held, never accept-with-note"
+                    ),
+                    rule="W8-10 numbered-promise hard gate: HARD-fail to held, never accept-with-note",
+                )
+            return None
 
         deficiency2 = _carousel_deficiency(retried.slides)
         if deficiency2 is not None and self.trace is not None:
@@ -540,12 +834,16 @@ _DESTINATION_CONSTRAINTS: dict[str, dict[str, Any]] = {
         "people_free_composition": True,
         "no_product_depiction": True,
     },
+    # W8-9 (marketer-audit finding): instagram_feed is a CAROUSEL destination
+    # (style_guide.yaml's own carousel spec is injected alongside this) —
+    # ``no_product_depiction`` contradicted W8-9 policy and the stale
+    # "static-image post" format never matched what the copywriter was
+    # actually asked to produce here.
     "instagram_feed": {
         "headline_max_words": 12,
         "caption_max_chars": 2200,
-        "format": "static-image post",
+        "format": "carousel post",
         "people_free_composition": True,
-        "no_product_depiction": True,
     },
 }
 
@@ -564,6 +862,8 @@ def build_copy_request(
     snapshot_id: str,
     attempt: int = 1,
     prior_failing_spans: list[str] | None = None,
+    language: str = "en",
+    post_type: str = "promotional",
 ) -> CopyRequest:
     return CopyRequest(
         asset_id=asset_id,
@@ -589,6 +889,8 @@ def build_copy_request(
         disclosure_requirement=f'caption must contain an AI-content disclosure marker, e.g. "{AI_DISCLOSURE_LINE}"',
         snapshot_id=snapshot_id,
         prior_failing_spans=prior_failing_spans or [],
+        language=language,
+        post_type=post_type,
     )
 
 
@@ -646,6 +948,211 @@ def _persist_llm_copy_io(run_dir: Path, request: CopyRequest, result: CopyResult
     resp_path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# W8-10 Phase 2 — the humanness critic (new node N-F, EN). Runs AFTER the
+# claim gate passes, BEFORE the asset is returned as "gated-pass". Two
+# layers: a deterministic $0 regex pre-filter first (catches ~80% of the
+# slop-tell/rhythm defects for free), then a config-gated LLM rewrite pass
+# that is BLIND to the brief/style guide — it sees only the finished copy,
+# the platform name, and sibling assets from the same run (the only way to
+# catch cross-asset repetition, e.g. the live-run defect of "creators are
+# reporting..." used 5x across 4 assets). The rewrite re-enters
+# ``run_claim_gate``; a rewrite that fails the gate is discarded and the
+# original gated copy ships — a critic failure never loses a shippable asset.
+# ---------------------------------------------------------------------------
+
+_SLOP_TELL_RE = re.compile(
+    r"\b(actually|quietly|in the space|drowning in|isn't just|creators are reporting|game.?chang\w*|delve)\b",
+    re.IGNORECASE,
+)
+_TRICOLON_RE = re.compile(r",\s+[^,.\n]+,\s+and\s+[^,.\n]+")
+_ANTITHESIS_RE = re.compile(
+    r"\b(isn't|is not|aren't|wasn't|weren't)\b[^.?!\n]{0,60}\b(it's|it is|they're|they are|that's)\b",
+    re.IGNORECASE,
+)
+_EM_DASH_DENSITY_PER_WORD = 1 / 150  # style guide: at most 1 em-dash per 150 words
+
+HUMANNESS_CRITIC_DEFAULT_MAX_TOKENS = 2000
+
+
+def humanness_prefilter(text: str) -> list[str]:
+    """Deterministic, $0 slop-tell/rhythm pre-filter (copywriter-audit
+    Phase 2) over one asset's full text. Returns a list of human-readable
+    findings; an empty list means nothing tripped. Never blocks anything by
+    itself — findings feed the LLM critic as extra context (or are simply
+    absent when everything is clean, saving the critic no time either way:
+    per config, it still runs once per gated-pass asset)."""
+    findings: list[str] = []
+    if not text or not text.strip():
+        return findings
+
+    words = text.split()
+    word_count = max(1, len(words))
+
+    slop_hits = sorted({m.group(0).lower() for m in _SLOP_TELL_RE.finditer(text)})
+    for hit in slop_hits:
+        findings.append(f'slop-tell phrase found: "{hit}"')
+
+    em_dash_count = text.count("—")
+    if em_dash_count and (em_dash_count / word_count) > _EM_DASH_DENSITY_PER_WORD:
+        findings.append(
+            f"em-dash density too high: {em_dash_count} em-dash(es) across {word_count} words "
+            "(style guide: at most 1 per 150 words)"
+        )
+
+    tricolon_hits = _TRICOLON_RE.findall(text)
+    if tricolon_hits:
+        findings.append(f'tricolon pattern (", X, and Y") found {len(tricolon_hits)} time(s)')
+
+    antithesis_hits = _ANTITHESIS_RE.findall(text)
+    if len(antithesis_hits) > 1:
+        findings.append(f"X-not-Y antithesis shape used {len(antithesis_hits)} times (voice rule: at most once)")
+
+    return findings
+
+
+def _full_asset_text(result: CopyResult) -> str:
+    """The complete rendered text of one asset — headline, caption, and
+    every slide's title/body — for the pre-filter and for the sibling-
+    repetition context handed to the critic."""
+    parts = [result.headline or "", result.caption or ""]
+    for slide in result.slides or []:
+        parts.append(str(slide.get("title") or ""))
+        parts.append(str(slide.get("body") or ""))
+    return "\n".join(p for p in parts if p)
+
+
+_HUMANNESS_CRITIC_RUBRIC = (
+    "1. Named, first-person singular speaker voice — a real person talking, not a brand.\n"
+    "2. Concrete, specific opening grounded in something real — no vague scene-setting, no "
+    "fabricated first-person anecdote presented as fact.\n"
+    "3. Rhythm: at least 3 sentences under 6 words; no two consecutive sentences share the same "
+    "grammatical shape.\n"
+    "4. At most one antithesis (\"it's not X, it's Y\") in the whole asset.\n"
+    "5. At most one em-dash per 150 words; no parenthetical pairs of em-dashes.\n"
+    "6. No three-item parallel lists in prose (the \", X, and Y\" shape).\n"
+    "7. Any borrowed/trend number is attributed exactly once, as a single line at the very END — "
+    "never inline, never explaining the compliance reasoning to the reader.\n"
+    "8. Exactly one concrete, usable artifact (a verbatim prompt/search string/tool+setting) — "
+    "abstract nouns like workflow/system/layer/motion/engine do not count.\n"
+    "9. Exactly one ask (CTA); a P.S. only if it carries genuinely new information.\n"
+    "10. No repeated phrase or structure across the sibling assets shown to you below — the same "
+    "hedge phrase used across multiple assets in one run is an automatic fail.\n"
+    "11. The swap test: replace the product/brand name with a random competitor's — if nothing "
+    "breaks and the post still reads the same, it fails.\n"
+    "12. Reads like one human actually wrote it in one sitting — not a template filled in."
+)
+
+
+def _build_humanness_critic_prompt(
+    *, platform: str, asset_payload: dict[str, Any], sibling_texts: list[str], findings: list[str]
+) -> tuple[str, str, str]:
+    """Returns ``(system, user_content, schema_hint)``. Deliberately BLIND
+    to the brief and the style guide — the critic sees only the finished
+    copy, the platform name, and sibling assets from this same run."""
+    system = (
+        "You are a native-speaker editor who hates marketing copy. You were NOT given the brief, the "
+        "brand's style guide, or any context about what this post is supposed to achieve — you judge "
+        "ONLY whether it reads like a real human wrote it, against the rubric below. Your job is to "
+        "REWRITE the asset when it fails the rubric, not to score it: return the full corrected asset "
+        "in the exact same JSON shape you were given, changing only what needs to change. If the asset "
+        "already passes every rubric item, return it unchanged.\n\n"
+        f"Rubric:\n{_HUMANNESS_CRITIC_RUBRIC}"
+    )
+    lines = [f"Platform: {platform}", "", "Finished asset (JSON):", json.dumps(asset_payload, ensure_ascii=False, indent=2)]
+    if findings:
+        lines.append("")
+        lines.append("A deterministic pre-filter already flagged these (fix them too, if still present):")
+        lines.extend(f"- {f}" for f in findings)
+    if sibling_texts:
+        lines.append("")
+        lines.append(
+            "Other assets already finished in this same run — check rubric item 10 (cross-asset "
+            "repetition) against them:"
+        )
+        for i, sib in enumerate(sibling_texts, start=1):
+            lines.append(f"--- sibling asset {i} ---")
+            lines.append(sib)
+    schema_hint = (
+        'Schema: same JSON shape as the finished asset shown to you (headline, caption, '
+        'slides (if present), image_direction).'
+    )
+    return system, "\n".join(lines), schema_hint
+
+
+def apply_humanness_critic(
+    result: CopyResult,
+    request: CopyRequest,
+    *,
+    llm_client: LlmClient | None,
+    enabled: bool = True,
+    sibling_texts: list[str] | None = None,
+    snapshot: ClaimSnapshot,
+    hard_excludes: dict[str, ResolvedList] | None = None,
+    trace: Any = None,
+    stage: str = "copy",
+    node_name: str = "humanness_critic",
+) -> CopyResult:
+    """Runs the N-F humanness critic on one already claim-gate-passed asset.
+    No-op (returns ``result`` unchanged) when disabled or when there is no
+    LLM client at all (``InteractiveFileProvider``/``OpenAICompatibleProvider``
+    runs, and every existing test that never wires an LLM client) — this is
+    a pure addition, never a new failure surface for a non-LLM copy path."""
+    if not enabled or llm_client is None:
+        return result
+
+    findings = humanness_prefilter(_full_asset_text(result))
+
+    asset_payload: dict[str, Any] = {"headline": result.headline, "caption": result.caption, "image_direction": result.image_brief}
+    if result.slides is not None:
+        asset_payload["slides"] = result.slides
+
+    system, user_content, schema_hint = _build_humanness_critic_prompt(
+        platform=request.destination, asset_payload=asset_payload,
+        sibling_texts=sibling_texts or [], findings=findings,
+    )
+    override_tokens = llm_client.config.override_for(node_name).max_tokens
+    max_tokens = override_tokens if override_tokens is not None else HUMANNESS_CRITIC_DEFAULT_MAX_TOKENS
+    try:
+        data = llm_client.call_json(
+            node_name, system=system, user_parts=user_content, schema_hint=schema_hint, max_tokens=max_tokens,
+            purpose=f"N-F humanness critic — {request.destination} copy for {request.cluster_key}",
+        )
+    except LlmError as exc:
+        if trace is not None:
+            trace.decision(
+                stage,
+                decision=f"humanness critic call failed for {request.asset_id}: {exc} — kept the original gated copy",
+                rule="W8-10 N-F: a critic failure never loses a shippable asset",
+            )
+        return result
+
+    rewritten = _parse_openrouter_response(data)
+    verdict = run_claim_gate(
+        headline=rewritten.headline, caption=rewritten.caption, image_brief=rewritten.image_brief,
+        snapshot=snapshot, hard_excludes=hard_excludes, slides=rewritten.slides,
+    )
+    if verdict.verdict != "pass":
+        if trace is not None:
+            trace.decision(
+                stage,
+                decision=(
+                    f"humanness critic rewrite for {request.asset_id} failed the claim gate on re-entry "
+                    "— kept the original gated copy"
+                ),
+                rule="W8-10 N-F: rewrite must re-pass run_claim_gate; a gate-fail never loses a shippable asset",
+            )
+        return result
+
+    if trace is not None:
+        note = f" ({len(findings)} pre-filter finding(s))" if findings else ""
+        trace.decision(
+            stage, decision=f"humanness critic rewrote {request.asset_id}{note}",
+            rule="W8-10 N-F: humanness critic runs after the claim gate, blind to brief/style guide",
+        )
+    return rewritten
+
+
 def process_copy_asset(
     *,
     provider: TextModel,
@@ -656,6 +1163,9 @@ def process_copy_asset(
     trace: Any = None,
     stage: str = "copy",
     run_dir: Path | None = None,
+    llm_client: LlmClient | None = None,
+    humanness_critic_enabled: bool = True,
+    sibling_texts: list[str] | None = None,
 ) -> AssetCopyStatus:
     """Run one copy asset through generation and the claim gate, honouring
     the combined per-artifact repair ceiling (§14.0): on a block, a
@@ -711,11 +1221,21 @@ def process_copy_asset(
             )
 
         if verdict.verdict == "pass":
+            final_result = apply_humanness_critic(
+                result, current, llm_client=llm_client, enabled=humanness_critic_enabled,
+                sibling_texts=sibling_texts, snapshot=snapshot, hard_excludes=hard_excludes,
+                trace=trace, stage=stage,
+            )
+            if run_dir is not None and not is_file_backed_provider and final_result is not result:
+                # The critic rewrote the shipped copy -- overwrite the
+                # already-persisted response file so provenance reflects
+                # what actually shipped, not the pre-critic draft.
+                _persist_llm_copy_io(run_dir, current, final_result)
             return AssetCopyStatus(
                 asset_id=current.asset_id, cluster_key=current.cluster_key, destination=current.destination,
                 status="gated-pass", attempt=current.attempt,
-                headline=result.headline, caption=result.caption, image_brief=result.image_brief,
-                request_path=request_path_str, slides=result.slides,
+                headline=final_result.headline, caption=final_result.caption, image_brief=final_result.image_brief,
+                request_path=request_path_str, slides=final_result.slides,
             )
 
         failing_span_texts = [f"{s.field_name}: {s.kind} '{s.text}' — {s.reason}" for s in verdict.failing_spans]

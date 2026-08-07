@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -81,7 +82,13 @@ from hypeagent.trace import TraceWriter
 # process``'s ``identity_kwargs``), so bumping it here means a resumed run
 # reproducibly reuses the SAME scheme it started with rather than an
 # in-place identity silently spanning two incompatible prompt styles.
-PROMPT_PATTERN_VERSION = 2
+#
+# W8-10: bumped 2 -> 3. ``promptcraft.craft_prompts`` now emits the
+# STYLE/RENDER two-section scheme (a deterministic, code-built STYLE block
+# concatenated with the LLM's RENDER text) instead of one LLM-authored
+# prompt string -- a different prompt identity again, for the same
+# resume-safety reason as the 1 -> 2 bump above.
+PROMPT_PATTERN_VERSION = 3
 ATTEMPT_MAX = 2
 
 # W8-9 Q4: draft < standard, the only two tiers this registry names. Route
@@ -546,6 +553,9 @@ def infer_delivered_route_state(
 
 STATUS_COUNT_CAPPED = "not generated — count capped"
 STATUS_BUDGET_CAPPED = "not generated — budget capped"
+# W8-10 point 1a: a $0 status, never charged, never ledgered -- the prompt
+# never reached ``createTask``.
+STATUS_PROMPT_LEAK_CHECK_FAILED = "not generated — prompt leak check failed"
 
 
 @dataclass
@@ -616,6 +626,17 @@ class MediaAssetPlan:
     qa_expected_text: str | None = None
     qa_archetype: str | None = None
     qa_register: str | None = None
+    # W8-10 Phase 8, additive: the generation mode this slot's crafted
+    # prompt was picked against (``promptcraft.CraftedPromptSet.mode``) --
+    # ``None`` for a legacy/no-visual-profile asset or the fallback/
+    # compose_prompt path, exactly like ``qa_archetype``/``qa_register``.
+    qa_mode: str | None = None
+    # W8-10 point 3: whether THIS slot is its carousel's cover (slide_01) --
+    # a hero plan is trivially its own "cover" (no siblings, so the series
+    # check never applies to it either way). Non-cover slides use this to
+    # look up their cluster's already-generated cover image for the N-E
+    # series-consistency check (see ``MediaGenerator._cover_image_for``).
+    is_cover: bool = True
 
     @property
     def asset_slot(self) -> str:
@@ -674,6 +695,11 @@ def plan_media_assets(
                         qa_expected_text=_slide_text(slide) or None,
                         qa_archetype=crafted.archetype if crafted is not None else None,
                         qa_register=crafted.register if crafted is not None else None,
+                        qa_mode=crafted.mode if crafted is not None else None,
+                        # W8-10: the cover is always slide_01 in this
+                        # pipeline's carousel model -- every OTHER slide is
+                        # a series-consistency candidate against it.
+                        is_cover=(image.slot == "slide_01"),
                     )
                 )
         else:
@@ -686,6 +712,7 @@ def plan_media_assets(
                     qa_expected_text=(status.headline or None) if hero_prompt else None,
                     qa_archetype=crafted.archetype if (crafted is not None and hero_prompt) else None,
                     qa_register=crafted.register if (crafted is not None and hero_prompt) else None,
+                    qa_mode=crafted.mode if (crafted is not None and hero_prompt) else None,
                 )
             )
     return plans
@@ -765,7 +792,92 @@ def _parse_asset_slot(asset_slot: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# N-E Vision-QA gate (W8-9 Q4).
+# W8-10 point 1: deterministic, $0 pre-LLM leak checks -- pure functions, no
+# network, no LLM call. Wired TWO ways (module docstring updated below):
+# (a) pre-generation, over the crafted/composed prompt's own ``<<...>>``
+#     renderable-text spans, BEFORE ``createTask`` is ever called (catches
+#     leakage before paying for an image) -- see
+#     :meth:`MediaGenerator._submit_or_resolve`.
+# (b) post-QA, over the vision-QA response's own free text (mismatches +
+#     notes) -- catches the LLM itself echoing a garbled scaffolding word
+#     without flagging it as a mismatch -- see :func:`run_vision_qa`.
+# Both wirings share the same banned-string/hex/quote-glyph vocabulary so a
+# defect class caught by one is caught by the other, independent of the
+# LLM's own judgment either way.
+# ---------------------------------------------------------------------------
+
+# The exact banned-string list named for this round (W8-10 point 1) --
+# case-insensitive substring match. "regular"/"typeset"/"readability" read
+# as ordinary English in isolation, but inside an image's rendered/QA text
+# they are exactly the scaffolding-leak tells this list exists to catch.
+BANNED_RENDERED_STRINGS = (
+    "montserrat", "didone", "semibold", "regular", "ui label", "placeholder", "lorem", "typeset", "readability",
+)
+
+_TWELVE_HEX_TOKEN_RE = re.compile(r"(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])")
+_QUOTED_SPAN_RE = re.compile(r"<<(.*?)>>", re.DOTALL)
+_QUOTE_GLYPHS = "\"'‘’“”"
+
+
+def _scan_banned_and_hex(text: str) -> list[str]:
+    findings: list[str] = []
+    lowered = (text or "").lower()
+    for banned in BANNED_RENDERED_STRINGS:
+        if banned in lowered:
+            findings.append(f"banned scaffolding string {banned!r}")
+    for match in _TWELVE_HEX_TOKEN_RE.finditer(text or ""):
+        findings.append(
+            f"12-character hex token {match.group(0)!r} (looks like an internal series id leaking as visible text)"
+        )
+    return findings
+
+
+def _scan_quote_wrapped(text: str, headline: str) -> list[str]:
+    stripped = (headline or "").strip()
+    if not stripped:
+        return []
+    haystack = text or ""
+    idx = haystack.find(stripped)
+    if idx == -1:
+        return []
+    before = haystack[idx - 1] if idx > 0 else ""
+    after_idx = idx + len(stripped)
+    after = haystack[after_idx] if after_idx < len(haystack) else ""
+    if before in _QUOTE_GLYPHS or after in _QUOTE_GLYPHS:
+        return ["required headline is wrapped in stray quote glyphs"]
+    return []
+
+
+def deterministic_prompt_leak_check(prompt: str, *, required_headline: str | None = None) -> list[str]:
+    """(a) Pre-generation sanity, run BEFORE ``createTask`` is ever called
+    (``_submit_or_resolve``): scans only the prompt's own ``<<...>>``
+    renderable-text spans (never the surrounding STYLE/composition prose,
+    which legitimately names fonts/percentages as internal direction) for a
+    banned scaffolding string or an internal 12-char hex token, plus a
+    stray-quote check around the required headline wherever it appears in
+    the prompt. Returns an empty list when clean -- never raises."""
+    findings: list[str] = []
+    for span in _QUOTED_SPAN_RE.findall(prompt or ""):
+        findings.extend(_scan_banned_and_hex(span))
+    if required_headline:
+        findings.extend(_scan_quote_wrapped(prompt or "", required_headline))
+    return findings
+
+
+def deterministic_qa_text_leak_check(text: str, *, required_headline: str | None = None) -> list[str]:
+    """(b) Post-QA, run over the vision-QA response's own free text
+    (mismatches + notes joined) after the call returns: the same
+    banned-string/hex scan (over the WHOLE text this time -- there is no
+    prompt-authoring convention to scope it to) plus the same stray-quote
+    check. Returns an empty list when clean -- never raises."""
+    findings = _scan_banned_and_hex(text or "")
+    if required_headline:
+        findings.extend(_scan_quote_wrapped(text or "", required_headline))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# N-E Vision-QA gate (W8-9 Q4, upgraded to an art-director gate W8-10).
 # ---------------------------------------------------------------------------
 
 QA_SYSTEM_PROMPT = (
@@ -784,7 +896,44 @@ QA_SYSTEM_PROMPT = (
     "real text) MUST still fail text_matches, even if it is not one of the required strings, because "
     "it is a visible defect a viewer would notice. Always list every mismatch you observe — required "
     "or decorative — in the structured mismatches list; do not silently pass an image with visible "
-    "text defects. Respond with ONLY the JSON schema given."
+    "text defects.\n\n"
+    "You also judge four further boolean gates (W8-10 -- an art-director pass, not just a proofreader):\n"
+    "subject_relevant: true ONLY if the imagery actually depicts THIS slide's own sentence/topic -- e.g. "
+    "a calendar full of booked calls on a post about an AI-agent ecosystem is NOT subject-relevant, even "
+    "if the image itself looks polished; false whenever the proof visual is a generic stock choice "
+    "unrelated to the required text.\n"
+    "logos_ok: true when every real tool/platform named in the required text has its actual logo mark "
+    "present, recognizable, and undistorted somewhere in the image; true (vacuously) whenever the "
+    "required text names no tool at all -- never fail this for a slide that names no tool.\n"
+    "composition_ok: true when there is no orphaned or random decorative element (e.g. a toggle switch "
+    "with no purpose), every inset/proof element sits fully inside the visible margins with no bleeding "
+    "or collision, and there is no mid-paragraph jump in type size; false otherwise.\n"
+    "series_consistent: when a second reference image (this carousel's own cover slide) is provided, "
+    "true ONLY if this image's background hue family, body typeface family, and handle corner all "
+    "visibly match that reference; when no second reference image is provided (this IS the cover, or "
+    "none is available), return true -- the check does not apply to this image.\n\n"
+    "MODE-AWARE COMPOSITION (W8-10 Phase 8 -- dynamic inspiration) -- this pipeline now generates against "
+    "several distinct visual modes/registers, not one single editorial template; you are told the "
+    "Intended register and Intended generation mode for the image you are judging, and MUST judge "
+    "composition_ok, subject_relevant, and logos_ok by the rubric that actually applies to THAT register/"
+    "mode, never by editorial-card expectations alone. For a photographic register/mode (photoreal_"
+    "lifestyle_sticker, photoreal_person_ugc, aspirational_lifestyle_scene, native_caption_frame, meme_"
+    "reaction_split, flat_lay_product_grid): judge photorealism (does the ground genuinely look like a "
+    "real photograph, never a flat graphic card?), sticker-text legibility (is the plain white sticker-"
+    "style text with its drop shadow readable against the photo background?), person non-identifiability "
+    "(see PERSON POLICY below), and logo fidelity (is the composited app icon/logo recognizable and "
+    "undistorted?) -- do NOT fail composition_ok merely for lacking a flat editorial card's margin grid or "
+    "typographic layout, which simply does not apply to a photographic mode. For the editorial/hype "
+    "registers (designed_card, live_app_ui, and the pre-existing card archetypes): judge composition_ok by "
+    "the flat-card layout rubric (margins, insets, typographic grid) exactly as before.\n\n"
+    "PERSON POLICY -- synthetic, non-identifiable people (including a visible face, e.g. a phone-camera "
+    "selfie or talking-head framing for the photoreal_person_ugc mode) are PERMITTED and, for that mode, "
+    "EXPECTED. However, if a rendered person resembles any specific identifiable real individual or a "
+    "celebrity/public figure, you MUST fail -- add a mismatch note naming the concern and treat that as an "
+    "overall fail regardless of the register/mode; this rule applies to every mode, not only the "
+    "photoreal person modes.\n\n"
+    "A non-empty mismatches list means this image can NEVER be an overall pass, regardless of what the "
+    "individual booleans say. Respond with ONLY the JSON schema given."
 )
 
 
@@ -792,6 +941,11 @@ QA_SYSTEM_PROMPT = (
 class VisionQaResult:
     status: str  # "pass" | "fail" | "skipped"
     text_matches: bool | None = None
+    # W8-10 point 3: the art-director gate's four additional booleans.
+    subject_relevant: bool | None = None
+    logos_ok: bool | None = None
+    composition_ok: bool | None = None
+    series_consistent: bool | None = None
     archetype_ok: bool | None = None
     mismatches: list[str] = field(default_factory=list)
     notes: str | None = None
@@ -802,6 +956,10 @@ class VisionQaResult:
             "status": self.status,
             "text_matches": self.text_matches,
             "archetype_ok": self.archetype_ok,
+            "subject_relevant": self.subject_relevant,
+            "logos_ok": self.logos_ok,
+            "composition_ok": self.composition_ok,
+            "series_consistent": self.series_consistent,
             "mismatches": self.mismatches,
             "notes": self.notes,
             "skip_reason": self.skip_reason,
@@ -816,19 +974,39 @@ def run_vision_qa(
     expected_text: str | None,
     archetype: str | None,
     register: str | None,
+    # W8-10 Phase 8, additive: the generation mode this image was crafted
+    # against (``promptcraft.pick_generation_mode``'s own pick, carried on
+    # ``MediaAssetPlan.qa_mode``) -- ``None`` for every legacy/no-visual-
+    # profile asset, which is this parameter's own signal that only the
+    # register-level branching in ``QA_SYSTEM_PROMPT`` applies.
+    mode: str | None = None,
     node_name: str = "vision_qa",
     purpose: str = "",
     trace: TraceWriter | None = None,
     stage: str = "media",
     asset_id: str = "",
     regeneration_counter: int | None = None,
+    is_cover: bool = False,
+    cover_image_bytes: bytes | None = None,
+    cover_mime: str | None = None,
 ) -> VisionQaResult:
     """N-E: one vision-QA call per downloaded image. Never raises -- an
     unavailable/disabled LLM, an exhausted per-run LLM budget, a call
     failure, or simply nothing to verify (no crafted on-image text for this
     plan) all degrade to ``status="skipped"`` with the reason named
     (provenance's ``qa: skipped-<reason>``), which is explicitly NOT a QA
-    failure and never triggers a regeneration."""
+    failure and never triggers a regeneration.
+
+    W8-10: this is now an art-director gate, not just a text proofreader.
+    ``is_cover``/``cover_image_bytes`` (the SAME carousel's already-generated
+    cover slide, when one exists) drive the ``series_consistent`` check --
+    passed as a second image in the same call so the model can compare
+    background hue family, typeface family, and handle corner directly.
+    Overall pass requires text_matches AND archetype_ok AND subject_relevant
+    AND logos_ok AND composition_ok AND (series_consistent OR is_cover OR no
+    cover image was available) AND an EMPTY mismatches list -- a non-empty
+    mismatches list can never be a pass (point 2: the exact bug that shipped
+    was PASS with 'UII Label' garbling sitting in the mismatches array)."""
     if not expected_text:
         return VisionQaResult(status="skipped", skip_reason="no crafted on-image text to verify for this asset")
     if llm_client is None:
@@ -837,14 +1015,31 @@ def run_vision_qa(
     if calls_remaining <= 0 or usd_remaining <= 0:
         return VisionQaResult(status="skipped", skip_reason="LLM budget exhausted for this run")
 
-    schema_hint = 'Schema: {"text_matches": bool, "archetype_ok": bool, "mismatches": [string], "notes": string}'
-    user_parts = [
-        image_content_part(image_bytes, mime=mime),
+    schema_hint = (
+        'Schema: {"text_matches": bool, "archetype_ok": bool, "subject_relevant": bool, "logos_ok": bool, '
+        '"composition_ok": bool, "series_consistent": bool, "mismatches": [string], "notes": string}'
+    )
+    user_parts = [image_content_part(image_bytes, mime=mime)]
+    has_cover_reference = bool(not is_cover and cover_image_bytes)
+    if has_cover_reference:
+        user_parts.append(image_content_part(cover_image_bytes, mime=cover_mime or mime))
+        series_note = (
+            "The second image above is this carousel's own cover slide, provided so you can judge "
+            "series_consistent by comparing background hue family, body typeface family, and handle corner "
+            "against it."
+        )
+    else:
+        series_note = (
+            "No cover reference image is provided (this is the cover slide, or none is available yet) -- "
+            "series_consistent does not apply to this image; return true."
+        )
+    user_parts.append(
         text_content_part(
             f"Exact text that must appear on this image: {expected_text!r}\n"
-            f"Intended visual archetype: {archetype!r}\nIntended register: {register!r}"
-        ),
-    ]
+            f"Intended visual archetype: {archetype!r}\nIntended register: {register!r}\n"
+            f"Intended generation mode: {mode!r}\n{series_note}"
+        )
+    )
     try:
         data = llm_client.call_json(
             node_name, system=QA_SYSTEM_PROMPT, user_parts=user_parts, schema_hint=schema_hint, purpose=purpose,
@@ -855,9 +1050,31 @@ def run_vision_qa(
 
     text_matches = bool(data.get("text_matches"))
     archetype_ok = bool(data.get("archetype_ok"))
+    subject_relevant = bool(data.get("subject_relevant"))
+    logos_ok = bool(data.get("logos_ok"))
+    composition_ok = bool(data.get("composition_ok"))
+    series_consistent = bool(data.get("series_consistent"))
     mismatches = [str(m) for m in (data.get("mismatches") or [])]
     notes = str(data.get("notes") or "") or None
-    verdict = "pass" if (text_matches and archetype_ok) else "fail"
+
+    # W8-10 point 1b: a $0 deterministic re-scan of the QA response's OWN
+    # text for the same leakage classes checked pre-generation -- catches
+    # the model itself echoing a garbled scaffolding word back without
+    # flagging it as a mismatch.
+    leak_findings = deterministic_qa_text_leak_check(
+        f"{' '.join(mismatches)} {notes or ''}", required_headline=expected_text,
+    )
+    if leak_findings:
+        mismatches = mismatches + [f"deterministic check: {finding}" for finding in leak_findings]
+
+    series_ok = series_consistent or is_cover or not has_cover_reference
+    # W8-10 point 2: a non-empty mismatches list can NEVER pass, regardless
+    # of what the individual booleans say.
+    passed = (
+        text_matches and archetype_ok and subject_relevant and logos_ok and composition_ok
+        and series_ok and not mismatches
+    )
+    verdict = "pass" if passed else "fail"
     if trace is not None:
         trace.gate_verdict(
             stage, gate="vision_qa", asset_id=asset_id, verdict=verdict,
@@ -865,6 +1082,8 @@ def run_vision_qa(
         )
     return VisionQaResult(
         status=verdict, text_matches=text_matches, archetype_ok=archetype_ok, mismatches=mismatches, notes=notes,
+        subject_relevant=subject_relevant, logos_ok=logos_ok, composition_ok=composition_ok,
+        series_consistent=series_consistent,
     )
 
 
@@ -1071,6 +1290,31 @@ class MediaGenerator:
             refreshed = self.store.get_media_intent(existing.id)
             return self._status_from_row(plan, refreshed or existing)
 
+        # W8-10 point 1a: a $0 deterministic scan of the prompt's own
+        # <<...>> renderable spans, run BEFORE any cap check or spend --
+        # catches the exact leakage classes a live run actually shipped
+        # (a scaffolding word, an internal series id printed as a
+        # watermark, a quote-wrapped headline) before paying for an image
+        # at all. Never writes a ledger row (mirrors the capped-status
+        # returns just below: no submission was ever attempted).
+        prompt_preview = plan.crafted_prompt or compose_prompt(plan.image_brief or "", self.registry)
+        leak_findings = deterministic_prompt_leak_check(prompt_preview, required_headline=plan.qa_expected_text)
+        if leak_findings:
+            self.trace.decision(
+                self.stage,
+                decision=(
+                    f"asset {plan.asset_id}/{plan.slot} (attempt {attempt}): prompt failed deterministic "
+                    f"pre-generation leak check: {'; '.join(leak_findings)}"
+                ),
+                rule="W8-10 point 1a: a $0 scan of the prompt's own <<...>> spans catches scaffolding/hex/quote "
+                "leakage before paying for an image",
+            )
+            return MediaAssetStatus(
+                asset_id=plan.asset_id, cluster_key=plan.cluster_key, destination=plan.destination, slot=plan.slot,
+                status=STATUS_PROMPT_LEAK_CHECK_FAILED, route_id=route.route_id, expected_cost_usd=route.price_usd,
+                reason="; ".join(leak_findings),
+            )
+
         day_spend = self.store.media_spend_usd_for_day(theme=self.theme, run_date=self.run_date)
         decision = check_caps(
             count_so_far=acct.count_run, usd_so_far_run=acct.spent_usd_run, usd_so_far_day=day_spend,
@@ -1167,6 +1411,36 @@ class MediaGenerator:
             return True
         return False
 
+    def _cover_image_for(self, plan: MediaAssetPlan) -> tuple[bytes, str] | None:
+        """W8-10 point 3: for a non-cover carousel slide, look up its own
+        cluster's already-generated cover slide (``slide_01``) by querying
+        the ledger directly (never assuming in-process ordering) -- tries
+        attempt 1 then attempt ``ATTEMPT_MAX`` (a cover that itself needed a
+        regeneration still counts as "available"). Returns ``None`` (never
+        raises) whenever no completed cover image exists yet, which is this
+        function's own signal that the series-consistency check does not
+        apply this time (``run_vision_qa`` treats that exactly like a
+        cover slide itself)."""
+        if plan.is_cover:
+            return None
+        cover_asset_slot = f"{plan.destination}:slide_01"
+        for attempt in (1, ATTEMPT_MAX):
+            row = self.store.find_media_intent(
+                theme=self.theme, run_date=self.run_date, cluster_key=plan.cluster_key,
+                asset_slot=cover_asset_slot, language=plan.language,
+                prompt_pattern_version=PROMPT_PATTERN_VERSION, attempt=attempt,
+            )
+            if row is None or row.state not in ("done", "held-qa-failed") or not row.image_path:
+                continue
+            path = Path(row.image_path)
+            if not path.exists():
+                continue
+            try:
+                return path.read_bytes(), guess_image_mime(path)
+            except OSError:
+                return None
+        return None
+
     def _qa_runner_for(self, plan: MediaAssetPlan, *, regeneration_counter: int) -> Any:
         """Build the closure :meth:`_complete_success` calls (image path in
         hand) to run N-E vision-QA for THIS plan's expectations. Only the
@@ -1174,13 +1448,16 @@ class MediaGenerator:
         adoption has no plan and passes ``qa_runner=None`` instead)."""
 
         def runner(image_path: Path) -> VisionQaResult:
+            cover = self._cover_image_for(plan)
+            cover_bytes, cover_mime = cover if cover is not None else (None, None)
             return run_vision_qa(
                 llm_client=self.llm_client, image_bytes=image_path.read_bytes(),
                 mime=guess_image_mime(image_path), expected_text=plan.qa_expected_text,
-                archetype=plan.qa_archetype, register=plan.qa_register,
+                archetype=plan.qa_archetype, register=plan.qa_register, mode=plan.qa_mode,
                 purpose=f"N-E vision QA — {plan.asset_id}/{plan.slot} (attempt {regeneration_counter})",
                 trace=self.trace, stage=self.stage, asset_id=f"{plan.asset_id}/{plan.slot}",
-                regeneration_counter=regeneration_counter,
+                regeneration_counter=regeneration_counter, is_cover=plan.is_cover,
+                cover_image_bytes=cover_bytes, cover_mime=cover_mime,
             )
 
         return runner

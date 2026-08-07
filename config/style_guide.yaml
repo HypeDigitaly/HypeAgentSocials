@@ -46,29 +46,36 @@ platforms:
     copy:
       form: long_post
       word_count: [150, 330]
-      skeleton:  # the 7-beat shape; every corpus post follows it
-        - hook (1-2 lines, from hooks list)
-        - old way as an X-mark list (3-4 lines, glyph "❌")
+      # W8-10 (copywriter audit): a MENU of beats, not a fill-in-the-blank
+      # form — every corpus post drew from this shape, but "follow it
+      # exactly" is what produced AI-average, template-shaped English.
+      # Required: deviate from this menu in at least one visible way.
+      skeleton_menu:
+        - hook (1-2 lines) — best if it's something real from this run's viral playbook, not a template phrase
+        - old way as a short contrast list (❌), only as long as it needs to be
         - the new way — NAME the real tool(s)
-        - capability bullets with "→" glyph (min 5, max 9 — never outside this band)
-        - one concrete result number (exactly one headline number)
-        - the free giveaway / lead magnet (playbook, guide, prompt set)
-        - CTA stack
+        - capability bullets with "→" glyph, only as many as earn their place
+        - a concrete result number IF the playbook offers one worth borrowing — see numbers_rule
+        - the free giveaway / lead magnet (playbook, guide, prompt set), only if genuinely offered
+        - exactly one ask — see cta_stack
       formatting:
         one_sentence_per_line: true
         blank_line_between_lines: true
         glyphs: {capabilities: "→", old_way: "❌", product_list: "➤", results: "-->"}
         unicode_bold_subheaders: allowed
         emoji_budget: [2, 5]
-      cta_stack:  # up to all four, in this order
-        - comment_keyword_gate   # "Comment 'WORD' and I'll send it" — single caps word
-        - connection_requirement # "(We need to be connected so I can reply)"
-        - repost_ask             # "♻️ Repost to help ..."
-        - ps_mindset_line        # optional P.S. with a mindset shift
+      # W8-10: pick the ONE best-fit ask for this post — never stack more
+      # than one CTA. connection_requirement only ever pairs WITH
+      # comment_keyword_gate; it is never a stand-alone second ask.
+      cta_stack:
+        pick_one_of:
+          - comment_keyword_gate   # "Comment 'WORD' and I'll send it" — single caps word
+          - repost_ask             # "♻️ Repost to help ..."
+        ps_line: "Include a P.S. only if it carries genuinely new information — never a repeat, never a generic mindset throwaway line."
       numbers_rule: >
-        Every post carries 1-6 hard numbers (time saved, leads, reply rates, revenue) —
-        but ONLY numbers that pass the claim gate: trend-corpus numbers must be
-        attributed to the trend ("creators are reporting..."), never claimed as ours.
+        A borrowed/trend number, if used at all, is attributed exactly once, in your own words,
+        as a single line at the END of the post — never inline, never with an explanation of why
+        you're allowed to use it. Trend-corpus numbers belong to the trend, never to us.
     visual:
       default_archetypes: [statement-card, dense-spec-card, screenshot-as-proof]
       aspect_ratio: "1.91:1 or 1:1"
@@ -100,7 +107,15 @@ platforms:
 # ------------------------------------------------------------- visual archetypes ----
 visual_archetypes:
   - key: screenshot-as-proof
-    desc: "Unretouched software screenshot as proof (calendar full of booked calls, inbox of leads). Zero design applied."
+    desc: >
+      The REAL, current, accurately branded app/tool UI (its own actual logo/wordmark included) as the
+      proof surface, chosen because it depicts the exact tool/outcome named in THIS slide's own sentence
+      (W8-10: never default to a calendar or inbox screenshot unless the slide's text itself mentions
+      scheduling/booking or inbox/email). W8-10 Phase 8: relaxed from the earlier "unretouched, zero
+      design, generic" phrasing -- the fidelity-trace audit found the trend corpus's winning
+      screenshot-as-proof creatives show real branded UI, and brand policy (third_party_marks, above)
+      already permits accurately depicted third-party logos/UI; this archetype backs the `live_app_ui`
+      generation mode.
   - key: screenshot-annotated
     desc: "Screenshot + highlight/annotation layer drawing the eye to the proof."
   - key: statement-card
@@ -123,6 +138,26 @@ visual_archetypes:
     desc: "High-fashion photo composite with giant type overlapping subject + brand logo prop."
   - key: end-card
     desc: "Follow/save CTA card closing a carousel, platform glyphs outlined."
+  # W8-10 Phase 8 (dynamic-inspiration generation modes) -- four archetypes
+  # with no earlier close match in this list; each backs one new
+  # ``promptcraft.GENERATION_MODES`` entry of the same photographic family.
+  - key: aspirational-lifestyle-scene
+    desc: >
+      A luxury, aspirational real environment (car interior, poolside, penthouse window, high-end
+      workspace) does the persuasion visually -- the environment itself is the message. Minimal
+      on-image text, at most one short line.
+  - key: native-caption-frame
+    desc: >
+      A single video-frame look (native, unposed, phone-shot feel) with exactly one short, centered,
+      burned-in caption line at the lower third, video-subtitle style -- no other on-image text.
+  - key: meme-reaction-split
+    desc: >
+      Frame split horizontally: an app/tool screenshot on top, a synthetic non-identifiable person's
+      reaction-style photo on the bottom. At most one short sticker-style caption line.
+  - key: flat-lay-product-grid
+    desc: >
+      Overhead flat-lay photograph of devices and desk props (phone, laptop, notebook, coffee) neatly
+      arranged, one real app icon composited in, and a single short benefit line.
 
 visual_registers:
   editorial:
@@ -135,6 +170,24 @@ visual_registers:
     type: "condensed bold all-caps sans"
     accent: "yellow keyword highlight blocks; white primary text"
     mood: "urgent, direct-response"
+  # W8-10 Phase 8 (dynamic-inspiration fidelity trace): the trend corpus's
+  # actual winning distribution is 96% photoreal photo ground / 92% sticker
+  # text / 0% editorial typography cards -- this register exists so a
+  # photoreal generation mode never inherits the editorial register's
+  # cream-paper/Didone-serif directives. Never force the HD indigo/teal
+  # brand palette onto a photographic ground (see
+  # ``promptcraft._build_style_section``'s register branch) -- the photo's
+  # own natural, real-world colors dominate.
+  photographic_ugc:
+    ground: >
+      a genuine photorealistic photograph (never a flat graphic card) -- the environment comes from
+      this theme's own observed dominant_environment, leaning aspirational/high-end whenever this
+      theme's aspiration_signal_rate is high
+    type: >
+      plain white sans-serif TikTok-style sticker text with a soft drop shadow -- never a serif
+      display typeface and never an editorial paper-texture background
+    accent: "optional; the photo's own natural palette dominates -- never force the brand indigo/teal gradient here"
+    mood: "authentic, native, UGC-credible"
 
 # ------------------------------------------------------------------ brand layer -----
 brand:
@@ -157,4 +210,10 @@ reject:
   - "prices or price-shaped claims (F-F: prices never stated)"
   - "regulated-outcome or therapeutic promises (claim gate class)"
   - "client names (Nuvaro etc.) or presenting RAGus as current"
-  - "identifiable real individuals / celebrity likeness in generated imagery"
+  # W8-10 Phase 8 person-policy clarification (operator decision): this is
+  # NOT a blanket ban on people in generated imagery -- SYNTHETIC,
+  # non-identifiable people (including a visible face, e.g. the
+  # photoreal_person_ugc generation mode's phone-camera/selfie framing) are
+  # explicitly PERMITTED and, for that mode, expected. Only an identifiable
+  # real individual or a celebrity/public-figure likeness is rejected.
+  - "identifiable real individuals / celebrity likeness in generated imagery (synthetic, non-identifiable people are allowed and, for UGC-style modes, expected)"

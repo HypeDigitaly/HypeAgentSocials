@@ -119,6 +119,15 @@ UNUSED_MONITOR_FIELDS: tuple[str, ...] = ("connecting_thread", "timing_analysis"
 
 VIRLO_EXTRACTION_FILENAME = "virlo_extraction.yaml"
 
+# W8-10 Phase 8 (dynamic inspiration): the image<->item join manifest. Lives
+# in the run dir next to ``virlo_corpus.yaml``/``virlo_extraction.yaml`` --
+# NOT inside ``virlo_media/`` itself -- so it never perturbs that
+# directory's own file-count/retention semantics (the media files there are
+# individually registered under the store's 30-day raw-artifact job; this
+# manifest is registered the same way ``virlo_corpus.yaml`` already is,
+# right below).
+VIRLO_MEDIA_MANIFEST_FILENAME = "virlo_media_manifest.yaml"
+
 
 @dataclass
 class VirloExtractionNote:
@@ -501,7 +510,13 @@ def collect(
             videos_sorted=videos_sorted, slideshows_sorted=slideshows_sorted, cap=media_download_cap
         )
         if downloads:
-            succeeded, failed = _download_media(ctx=ctx, downloads=downloads)
+            analysis_data_block: dict[str, Any] = {}
+            if selected_payload is not None:
+                data_block = selected_payload.get("data") or {}
+                if isinstance(data_block, dict):
+                    analysis_data_block = data_block.get("analysis_data") or {}
+            theme_map = _video_theme_key_map(analysis_data_block if isinstance(analysis_data_block, dict) else {})
+            succeeded, failed, manifest_entries = _download_media(ctx=ctx, downloads=downloads, theme_map=theme_map)
             media_downloaded = succeeded
             ctx.trace.decision(
                 ctx.stage,
@@ -516,6 +531,25 @@ def collect(
             )
             if failed:
                 degrade_reasons.append(f"virlo media download: {failed} of {len(downloads)} selected image(s) failed")
+
+            # W8-10 Phase 8: the image<->item join manifest, written next to
+            # virlo_corpus.yaml/virlo_extraction.yaml (never inside
+            # virlo_media/ itself -- see VIRLO_MEDIA_MANIFEST_FILENAME's own
+            # docstring). Best-effort, same posture as the corpus write above.
+            if manifest_entries and ctx.run_dir is not None:
+                try:
+                    manifest_path = write_media_manifest(Path(ctx.run_dir), manifest_entries)
+                    ctx.store.register_raw_artifact(
+                        run_id=ctx.run_id,
+                        run_date=ctx.run_date,
+                        theme=ctx.theme,
+                        source=SOURCE,
+                        query_sig=f"media-manifest:{selected_monitor_id}",
+                        endpoint="virlo-media-manifest",
+                        path=manifest_path,
+                    )
+                except Exception:
+                    pass
 
     # -- 6. Extraction note (W8-8, extended W8-9 with sub-path counts) ------
     if selected_monitor_id is not None and selected_payload is not None and ctx.run_dir is not None:
@@ -891,28 +925,157 @@ def load_virlo_corpus(run_dir: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+# ---------------------------------------------------------------------------
+# W8-10 Phase 8 — the image<->item join manifest: which downloaded filename
+# came from which corpus item (video/slideshow panel), at what view count,
+# under which theme (when derivable), with a short verbatim caption/
+# hook/panel-text snippet for that same item. N-A (``hypeagent.analysis``)
+# uses this to select images by views (not hash-sorted filenames), to
+# guarantee a video-thumbnail quota, and to label each image in its prompt
+# so the model can attribute what it sees back to a real post.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MediaManifestEntry:
+    """One row of ``virlo_media_manifest.yaml``: a downloaded image file,
+    joined back to the corpus item (video or slideshow) it came from."""
+
+    filename: str
+    item_id: str | None
+    item_kind: str  # "video" | "slideshow"
+    panel_index: int | None
+    views: int
+    theme_key: str | None
+    caption: str | None
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        return {
+            "filename": self.filename,
+            "item_id": self.item_id,
+            "item_kind": self.item_kind,
+            "panel_index": self.panel_index,
+            "views": self.views,
+            "theme_key": self.theme_key,
+            "caption": self.caption,
+        }
+
+
+def write_media_manifest(run_dir: Path, entries: list[MediaManifestEntry]) -> Path:
+    """Write ``virlo_media_manifest.yaml`` into ``run_dir`` (the same
+    directory ``virlo_corpus.yaml``/``virlo_extraction.yaml`` already live
+    in — never inside ``virlo_media/`` itself, see the filename constant's
+    docstring above). Verbatim third-party caption/hook/panel-text snippets
+    are permitted here for the same reason they are permitted in
+    ``virlo_corpus.yaml`` (module docstring: a research artifact under the
+    store's 30-day raw-artifact retention, not a trace)."""
+    path = Path(run_dir) / VIRLO_MEDIA_MANIFEST_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump({"entries": [e.to_yaml_dict() for e in entries]}, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_media_manifest(run_dir: Path) -> list[MediaManifestEntry]:
+    """Read back a previously-written ``virlo_media_manifest.yaml``, or
+    ``[]`` if this run never wrote one (an older engine version, media
+    downloads disabled, or no finalized monitor this run) -- never raises;
+    a missing/malformed manifest degrades to "nothing joinable", exactly
+    the posture ``load_virlo_corpus`` already holds for its own file."""
+    path = Path(run_dir) / VIRLO_MEDIA_MANIFEST_FILENAME
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    raw_entries = data.get("entries")
+    if not isinstance(raw_entries, list):
+        return []
+    entries: list[MediaManifestEntry] = []
+    for raw in raw_entries:
+        if not isinstance(raw, dict) or not raw.get("filename"):
+            continue
+        entries.append(
+            MediaManifestEntry(
+                filename=str(raw["filename"]),
+                item_id=str(raw["item_id"]) if raw.get("item_id") is not None else None,
+                item_kind=str(raw.get("item_kind") or "unknown"),
+                panel_index=int(raw["panel_index"]) if raw.get("panel_index") is not None else None,
+                views=int(raw.get("views") or 0),
+                theme_key=str(raw["theme_key"]) if raw.get("theme_key") is not None else None,
+                caption=str(raw["caption"]) if raw.get("caption") is not None else None,
+            )
+        )
+    return entries
+
+
+def _video_theme_key_map(analysis_data: dict[str, Any]) -> dict[str, str]:
+    """Best-effort video-id -> theme-name map, derived from each theme's own
+    ``evidence_video_ids`` (already captured in full by ``_theme_richness``).
+    Slideshows carry no equivalent evidence-linking field on the Virlo API
+    today, so slideshow-sourced manifest entries simply get ``theme_key=
+    None`` -- a documented, honest gap, not a crash."""
+    mapping: dict[str, str] = {}
+    themes = analysis_data.get("themes") if isinstance(analysis_data, dict) else None
+    if not isinstance(themes, list):
+        return mapping
+    for theme in themes:
+        if not isinstance(theme, dict):
+            continue
+        name = theme.get("name")
+        if not name:
+            continue
+        for video_id in theme.get("evidence_video_ids") or []:
+            if video_id:
+                mapping[str(video_id)] = str(name)
+    return mapping
+
+
+def _caption_snippet_for_item(item: dict[str, Any], *, kind: str, panel_index: int | None, limit: int = 200) -> str | None:
+    """A short verbatim snippet for the manifest join: the specific panel's
+    own text for a slideshow panel (falling back to the item's general
+    hook/description), or the item's hook/description/summary for a video
+    thumbnail."""
+    if kind == "slideshow_panel":
+        panel_texts = item.get("panel_texts") or []
+        if isinstance(panel_texts, list) and panel_index is not None and 0 <= panel_index < len(panel_texts):
+            text = panel_texts[panel_index]
+            if text:
+                return str(text)[:limit]
+    snippet = item.get("hook_text") or item.get("description") or item.get("summary")
+    return str(snippet)[:limit] if snippet else None
+
+
 def _select_media_downloads(
     *,
     videos_sorted: list[dict[str, Any]],
     slideshows_sorted: list[dict[str, Any]],
     cap: int,
-) -> list[tuple[str, str]]:
+) -> list[dict[str, Any]]:
     """Choose which images to download, honoring ``cap`` (GOAL_ROADMAP.md
     W8-9): ALL panels of the top 2-3 slideshows by views (never a partial
     carousel — a slideshow whose full panel set does not fit in the
     remaining budget is skipped entirely, trying the next one), then
     top-viewed video thumbnails filling any remaining budget. Returns an
-    ordered list of ``(image_url, kind)``."""
+    ordered list of download descriptors -- ``{"url", "kind", "item",
+    "panel_index"}`` -- carrying the source item dict forward (W8-10 Phase
+    8) so the manifest join can be built without re-fetching anything."""
     if cap <= 0:
         return []
-    selected: list[tuple[str, str]] = []
+    selected: list[dict[str, Any]] = []
     remaining = cap
 
     for slideshow in slideshows_sorted[:DEFAULT_MEDIA_DOWNLOAD_SLIDESHOWS_CONSIDERED]:
         urls = [u for u in (slideshow.get("image_urls") or []) if u]
         if not urls or len(urls) > remaining:
             continue
-        selected.extend((u, "slideshow_panel") for u in urls)
+        for panel_index, url in enumerate(urls):
+            selected.append({"url": url, "kind": "slideshow_panel", "item": slideshow, "panel_index": panel_index})
         remaining -= len(urls)
         if remaining <= 0:
             break
@@ -923,7 +1086,7 @@ def _select_media_downloads(
                 break
             url = video.get("thumbnail_url")
             if url:
-                selected.append((url, "video_thumbnail"))
+                selected.append({"url": url, "kind": "video_thumbnail", "item": video, "panel_index": None})
                 remaining -= 1
 
     return selected
@@ -936,20 +1099,30 @@ def _extension_from_url(url: str) -> str:
     return ".bin"
 
 
-def _download_media(*, ctx: CollectContext, downloads: list[tuple[str, str]]) -> tuple[int, int]:
+def _download_media(
+    *, ctx: CollectContext, downloads: list[dict[str, Any]], theme_map: dict[str, str] | None = None
+) -> tuple[int, int, list[MediaManifestEntry]]:
     """Best-effort download of public CDN media (thumbnails/carousel
     panels) for offline vision-LLM analysis input — never re-published,
     never traced by URL (RUN_TRACE_SPEC §3: counts only), registered with
     the store's existing 30-day raw-artifact retention. A per-file failure
     (network error, non-2xx, unwritable disk) degrades gracefully — it
-    never raises out of collection. Returns ``(succeeded, failed)``."""
+    never raises out of collection. Returns ``(succeeded, failed,
+    manifest_entries)`` -- the third element is W8-10 Phase 8's
+    image<->item join, one entry per successfully-downloaded file."""
     if not downloads or ctx.run_dir is None:
-        return 0, 0
+        return 0, 0, []
+    theme_map = theme_map or {}
     media_dir = Path(ctx.store.artifacts_dir) / ctx.run_id / "virlo_media"
     media_dir.mkdir(parents=True, exist_ok=True)
     succeeded = 0
     failed = 0
-    for url, kind in downloads:
+    manifest_entries: list[MediaManifestEntry] = []
+    for descriptor in downloads:
+        url = descriptor["url"]
+        kind = descriptor["kind"]
+        item = descriptor.get("item") or {}
+        panel_index = descriptor.get("panel_index")
         try:
             response = ctx.fetcher.fetch(url, method="GET")
         except Exception:
@@ -978,4 +1151,16 @@ def _download_media(*, ctx: CollectContext, downloads: list[tuple[str, str]]) ->
         except Exception:
             pass  # the file itself is already saved; retention registration is best-effort
         succeeded += 1
-    return succeeded, failed
+        item_id = item.get("id") if isinstance(item, dict) else None
+        manifest_entries.append(
+            MediaManifestEntry(
+                filename=file_path.name,
+                item_id=str(item_id) if item_id is not None else None,
+                item_kind="slideshow" if kind == "slideshow_panel" else "video",
+                panel_index=panel_index,
+                views=int(item.get("views") or 0) if isinstance(item, dict) else 0,
+                theme_key=theme_map.get(str(item_id)) if item_id is not None else None,
+                caption=_caption_snippet_for_item(item, kind=kind, panel_index=panel_index) if isinstance(item, dict) else None,
+            )
+        )
+    return succeeded, failed, manifest_entries

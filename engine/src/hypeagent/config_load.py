@@ -280,6 +280,11 @@ class RankingKnobs:
     corroboration_bonus: float
     evidence_floor_min_candidates: dict[str, int]
     evidence_floor_min_families: dict[str, int]
+    # Q6 re-audit R1 (W8-10 Phase 6): only candidates whose most recent
+    # signal was fetched within this many days are scored this run — a
+    # theme predating this key gets the same directional default (14 days)
+    # the re-audit itself recommended.
+    freshness_days: int = 14
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,7 @@ def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResear
         evidence_floor_min_families={
             k: int(v.get("min_families", 1)) for k, v in (ranking_block.get("evidence_floor") or {}).items()
         },
+        freshness_days=int(ranking_block.get("ranking_freshness_days", 14)),
     )
 
     return ThemeResearchConfig(
@@ -376,6 +382,21 @@ def load_theme_research_config(config_dir: Path, theme_name: str) -> ThemeResear
 # block is separate from the cross-theme baseline: this is per-theme
 # generation policy, consumed only by the spin/copy/claim-gate stages.
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PostMixConfig:
+    """``generation.post_mix`` (W8-10 Phase 5): per-run counts of each post
+    type, cross-topic-allocated by ``spin.allocate_post_types`` in a fixed
+    priority order (value_only, then playbook, then promotional — promo
+    never placed first by the allocator). All-zero (the default, and the
+    behaviour of any theme predating this block) is a total no-op: every
+    asset keeps today's fully distance-derived ``post_type``/``value_only``
+    behaviour, exactly as if this block did not exist."""
+
+    value_only: int = 0
+    playbook: int = 0
+    promotional: int = 0
 
 
 @dataclass(frozen=True)
@@ -461,6 +482,12 @@ class LlmConfig:
     # the whole per-run cap). A QA call itself is exempt from this
     # reservation and may use the full ``per_run_call_cap``.
     qa_reserved_calls: int = 16
+    # W8-10 Phase 2 (N-F humanness critic): on by default -- every gated-pass
+    # copy asset gets one blind rewrite pass by a "native-speaker editor who
+    # hates marketing copy" before it ships. A theme predating this knob (or
+    # one that sets it to ``false``) gets exactly today's behaviour: no
+    # critic call, no extra spend.
+    humanness_critic_enabled: bool = True
 
     def override_for(self, node_name: str) -> LlmNodeOverride:
         return self.node_overrides.get(node_name, LlmNodeOverride())
@@ -520,6 +547,10 @@ class GenerationConfig:
     openai_compatible: OpenAICompatibleConfig
     media: MediaConfig
     llm: LlmConfig
+    # W8-10 Phase 5 (``generation.post_mix``) — default-constructed (all
+    # zero = off) so every theme/test predating this block keeps today's
+    # fully distance-derived post_type behaviour with zero code changes.
+    post_mix: PostMixConfig = field(default_factory=PostMixConfig)
 
 
 def load_theme_generation_config(config_dir: Path, theme_name: str) -> GenerationConfig:
@@ -597,6 +628,14 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         analyst_max_images=int(llm_block.get("analyst_max_images", 12)),
         node_overrides=node_overrides,
         qa_reserved_calls=int(llm_block.get("qa_reserved_calls", 16)),
+        humanness_critic_enabled=bool(llm_block.get("humanness_critic_enabled", True)),
+    )
+
+    post_mix_block = block.get("post_mix") or {}
+    post_mix = PostMixConfig(
+        value_only=int(post_mix_block.get("value_only", 0)),
+        playbook=int(post_mix_block.get("playbook", 0)),
+        promotional=int(post_mix_block.get("promotional", 0)),
     )
 
     return GenerationConfig(
@@ -608,6 +647,7 @@ def load_theme_generation_config(config_dir: Path, theme_name: str) -> Generatio
         openai_compatible=openai_compatible,
         media=media,
         llm=llm,
+        post_mix=post_mix,
     )
 
 

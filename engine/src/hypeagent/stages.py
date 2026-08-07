@@ -50,11 +50,21 @@ from hypeagent.trace import TraceWriter
 # M4 (GOAL_ROADMAP.md) inserts media after copy: one Kie.ai draft-tier image
 # per gated-pass copy asset, planning-only for everything else — images
 # only, draft tier only, nothing publishes.
+#
+# Q6 re-audit R2 (W8-10 Phase 6): ``analysis`` moved from BEFORE ``ranking``
+# to AFTER it. Ranking itself never consumed the analysis stage's output
+# (fully deterministic either way, confirmed in ``stage_ranking``/``spin.py``
+# — neither imports/reads ``viral_playbook``), so this reorder is a pure
+# input-quality change: N-A (the Trend & Visual Analyst) now studies only
+# the themes that WON this run's ranking, deeper, instead of every theme in
+# the raw Virlo corpus. ``resume_state.py``'s own stage-independence
+# contract is unaffected — ``analysis`` was never in ``RESUME_STAGE_NAMES``
+# either before or after this change.
 CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "theme_load",
     "collection",
-    "analysis",
     "ranking",
+    "analysis",
     "brand_truth",
     "spin",
     "copy",
@@ -362,12 +372,20 @@ def _load_style_guide_safe(ctx: RunContext) -> dict[str, Any] | None:
 
 def stage_analysis(ctx: RunContext, trace: TraceWriter) -> StageResult:
     """N-A Trend & Visual Analyst (W8-9 Q3a; FLOW_MAP.md's ``analysis``
-    stage). Runs between ``collection`` and ``ranking`` but does NOT feed
-    ranking in v1 (ranking stays fully deterministic) — its output
-    (``analysis/viral_playbook.yaml``) feeds ``copy`` instead, and its path
-    is carried into ``resume_state.yaml`` (via ``stage_spin``) so a
-    ``--resume`` re-entry into ``copy`` still has it without re-running this
-    stage.
+    stage). Runs AFTER ``ranking`` (Q6 re-audit R2, W8-10 Phase 6 — moved
+    from its original collection->analysis->ranking position) but still
+    does NOT feed ranking (ranking stays fully deterministic either way) —
+    its output (``analysis/viral_playbook.yaml``) feeds ``copy``/``media``
+    instead, and its path is carried into ``resume_state.yaml`` (via
+    ``stage_spin``) so a ``--resume`` re-entry into ``copy``/``media`` still
+    has it without re-running this stage.
+
+    N-A now receives ONLY the themes that won this run's ranking (the
+    representative titles of ``ranking_result.top_by_language[en]`` —
+    ``GENERATION_LANGUAGE``, since Czech copy is not in this goal's scope
+    either way), studied deeper (``hypeagent.analysis``'s raised per-theme
+    item caps), instead of every theme the raw Virlo corpus happened to
+    contain.
 
     Never fails the run (see ``hypeagent.analysis`` module docstring): no
     Virlo corpus this run, the LLM disabled in config, an exhausted LLM
@@ -380,9 +398,17 @@ def stage_analysis(ctx: RunContext, trace: TraceWriter) -> StageResult:
     llm_client = _get_or_build_llm_client(ctx, trace, stage="analysis")
     style_guide = _load_style_guide_safe(ctx)
 
+    ranking_result = ctx.extra.get("ranking_result")
+    winning_topics: list[str] = []
+    if ranking_result is not None:
+        winning_topics = [
+            sc.representative_title for sc in ranking_result.top_by_language.get(GENERATION_LANGUAGE, [])
+        ]
+
     playbook = analysis.run_trend_visual_analyst(
         run_dir=run_dir, media_dir=media_dir, style_guide=style_guide, llm_client=llm_client,
         trace=trace, stage="analysis", max_images=ctx.generation.llm.analyst_max_images,
+        winning_topics=winning_topics or None,
     )
     ctx.extra["viral_playbook"] = playbook
     ctx.extra["viral_playbook_path"] = str(run_dir / analysis.VIRAL_PLAYBOOK_DIRNAME / analysis.VIRAL_PLAYBOOK_FILENAME)
@@ -397,6 +423,7 @@ def stage_analysis(ctx: RunContext, trace: TraceWriter) -> StageResult:
             "skip_reason": playbook.skip_reason,
             "degrade_reason": playbook.degrade_reason,
             "theme_count": len(playbook.themes),
+            "winning_topics_count": len(winning_topics),
         },
     )
 
@@ -433,6 +460,7 @@ def stage_ranking(ctx: RunContext, trace: TraceWriter) -> StageResult:
         corroboration_bonus=ranking_cfg.corroboration_bonus,
         evidence_floor_min_candidates=ranking_cfg.evidence_floor_min_candidates,
         evidence_floor_min_families=ranking_cfg.evidence_floor_min_families,
+        freshness_days=ranking_cfg.freshness_days,
     )
 
     degraded_sources = ctx.extra.get("degraded_sources", [])
@@ -471,6 +499,20 @@ def stage_ranking(ctx: RunContext, trace: TraceWriter) -> StageResult:
             rule="ARCHITECTURE_PLAN §2.7 / §17.2 Phase-1 acceptance",
         )
 
+    if result.stale_skipped_count:
+        trace.decision(
+            "ranking",
+            decision=(
+                f"{result.stale_skipped_count} candidate(s) skipped before scoring — stale "
+                f"(older than the {ranking_cfg.freshness_days}-day freshness window)"
+            ),
+            rule=(
+                "Q6 re-audit R1: only candidates fetched within the freshness window are worth scoring; "
+                "older rows stay visible to cross-day dedupe (keyed by cluster history in the store, not "
+                "by which signals this run loaded) but do not consume scoring work"
+            ),
+        )
+
     total_top = sum(len(v) for v in result.top_by_language.values())
     return StageResult(
         outcome="ok",
@@ -479,6 +521,7 @@ def stage_ranking(ctx: RunContext, trace: TraceWriter) -> StageResult:
         extra={
             "zero_passing_candidates": result.zero_passing_candidates,
             "scorecards_total": len(result.all_scorecards),
+            "stale_skipped_count": result.stale_skipped_count,
         },
     )
 
@@ -550,6 +593,12 @@ def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
             rule="ARCHITECTURE_PLAN §6.9/§12.1: every asset records its one-line spin rationale",
         )
 
+    # W8-10 Phase 5: cross-topic post-type allocation, right after the spin
+    # loop and before ``spin_results`` is stored (mix all-zero, the default,
+    # is a total no-op — see ``spin.allocate_post_types``).
+    allocated = spin_module.allocate_post_types(list(spin_results.values()), ctx.generation.post_mix)
+    spin_results = {sr.cluster_key: sr for sr in allocated}
+
     cs_holds: list[dict[str, str]] = []
     for language, scorecards in ranking_result.top_by_language.items():
         if language == GENERATION_LANGUAGE:
@@ -597,6 +646,23 @@ def stage_spin(ctx: RunContext, trace: TraceWriter) -> StageResult:
     )
 
 
+def _resolve_excerpt_text(store: Store | None, canonical_key: str) -> str | None:
+    """W8-10 Phase 1 (copywriter-audit finding #4: ``excerpt_refs`` carried
+    canonical keys but no real viral post text ever reached the copywriter
+    prompt). Resolves one canonical key back to its stored verbatim excerpt
+    via the existing ``Store.get_provenance`` public API — ``None`` when
+    the store is unavailable or nothing is on file for that key, never an
+    error (a voice aid, not a new failure surface)."""
+    if store is None:
+        return None
+    provenance = store.get_provenance(canonical_key)
+    if provenance is None:
+        return None
+    _durable, verbatim = provenance
+    excerpt = verbatim.get("excerpt")
+    return excerpt or None
+
+
 def _build_copy_provider(ctx: RunContext, run_dir: Path, trace: TraceWriter | None = None) -> copy_gen.TextModel:
     """Provider selection (W8-9 Q3b): ``openrouter`` is the enabled LLM
     path — it only actually activates when ``generation.llm.enabled`` is
@@ -626,6 +692,8 @@ def _build_copy_provider(ctx: RunContext, run_dir: Path, trace: TraceWriter | No
             return copy_gen.OpenRouterProvider(
                 llm_client=llm_client, style_guide=style_guide, viral_playbook=viral_playbook,
                 brand_identity_one_liner=brand_identity, trace=trace, stage="copy",
+                exemplar_base_dir=ctx.config_dir.parent,
+                excerpt_resolver=lambda key: _resolve_excerpt_text(ctx.store, key),
             )
     if ctx.generation.copy_provider == "openai-compatible-http" and ctx.generation.openai_compatible.enabled:
         fetcher = ctx.fetcher_factory() if ctx.fetcher_factory is not None else UrllibFetcher()
@@ -661,6 +729,12 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
         return StageResult(outcome="ok", items_in=0, items_out=0)
 
     provider = _build_copy_provider(ctx, run_dir, trace)
+    # W8-10 Phase 2 (N-F humanness critic): the SAME shared LlmClient every
+    # other LLM node this run uses (cached on ``ctx.extra`` -- calling this
+    # again never rebuilds it), so critic calls count against the one
+    # per-run budget too. ``None`` (LLM disabled/no key) makes the critic a
+    # no-op for every existing non-LLM pipeline test, unchanged behaviour.
+    llm_client = _get_or_build_llm_client(ctx, trace, stage="copy")
     negative_capabilities = panel.facts.capabilities_negative
     pricing_policy_line = f"{panel.facts.pricing_policy}: {panel.facts.pricing_rationale}".strip()
     allowed_facts = [
@@ -673,6 +747,11 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
     ranking_result = ctx.extra["ranking_result"]
 
     statuses: list[copy_gen.AssetCopyStatus] = []
+    # W8-10 Phase 2: sibling-assets plumbing for the humanness critic's
+    # cross-asset repetition check — collected as each asset passes the
+    # claim gate and handed to the critic for every SUBSEQUENT asset (the
+    # first asset in a run has no siblings yet; that is fine).
+    sibling_texts: list[str] = []
     for cluster_key, sr in spin_results.items():
         canonical_keys = ranking_result.candidate_canonical_keys.get(cluster_key, [])
         for destination in ctx.generation.destinations:
@@ -682,14 +761,18 @@ def stage_copy(ctx: RunContext, trace: TraceWriter) -> StageResult:
                 excerpt_refs=canonical_keys, allowed_facts=allowed_facts,
                 negative_capabilities=negative_capabilities, pricing_policy_line=pricing_policy_line,
                 hard_excludes=ctx.theme_config.hard_excludes, exemplar_pool_paths=ctx.generation.exemplar_pool,
-                snapshot_id=panel.snapshot.snapshot_id,
+                snapshot_id=panel.snapshot.snapshot_id, language=GENERATION_LANGUAGE, post_type=sr.post_type,
             )
             status = copy_gen.process_copy_asset(
                 provider=provider, request=request, snapshot=panel.snapshot,
                 hard_excludes=ctx.theme_config.hard_excludes, max_attempts=ctx.generation.repair_budget,
-                trace=trace, stage="copy", run_dir=run_dir,
+                trace=trace, stage="copy", run_dir=run_dir, llm_client=llm_client,
+                humanness_critic_enabled=ctx.generation.llm.humanness_critic_enabled,
+                sibling_texts=list(sibling_texts),
             )
             statuses.append(status)
+            if status.status == "gated-pass":
+                sibling_texts.append(f"{status.headline or ''}\n{status.caption or ''}")
 
     ctx.extra["copy_asset_statuses"] = statuses
     held = sum(1 for s in statuses if s.status.startswith("held"))
@@ -733,16 +816,36 @@ def _craft_media_prompts_for_run(
     panel = ctx.extra.get("brand_truth_panel")
     hard_excludes = ctx.theme_config.hard_excludes if ctx.theme_config is not None else None
 
-    for status in to_craft:
+    for asset_index, status in enumerate(to_craft):
         sr = spin_results.get(status.cluster_key)
         topic = sr.topic if sr is not None else None
-        theme_playbook = viral_playbook.theme_playbook(topic) if viral_playbook is not None else None
+        theme_playbook = (
+            viral_playbook.theme_playbook(
+                topic,
+                warn=lambda msg, _status=status: trace.decision(
+                    "media",
+                    decision=f"asset {_status.asset_id}: {msg}",
+                    rule="W8-10 Phase 8: themes[0] silent fallback made visible (was silent pre-fix)",
+                ),
+            )
+            if viral_playbook is not None else None
+        )
         series_token = promptcraft.series_token_for(ctx.run_id, status.cluster_key)
+        # W8-10 Phase 8: hand N-D this theme's analyzed_items so 1-2 winning-creative
+        # summaries reach the RENDER brief as concrete visual references.
+        theme_items = None
+        if viral_playbook is not None and theme_playbook is not None:
+            profile = getattr(theme_playbook, "visual_profile", None)
+            theme_key = getattr(profile, "theme_key", None) if profile is not None else None
+            if theme_key:
+                theme_items = [
+                    item for item in viral_playbook.analyzed_items if item.theme_key == theme_key
+                ] or None
         prompt_set = promptcraft.craft_prompts(
             llm_client=llm_client, asset_id=status.asset_id, destination=status.destination,
             headline=status.headline or "", caption=status.caption or "", image_brief=status.image_brief or "",
             slides=status.slides, style_guide=style_guide, theme_playbook=theme_playbook, series_token=series_token,
-            trace=trace, stage="media",
+            trace=trace, stage="media", asset_index=asset_index, analyzed_items=theme_items,
         )
         if panel is not None:
             prompt_set = promptcraft.gate_check_prompts(prompt_set, snapshot=panel.snapshot, hard_excludes=hard_excludes)
@@ -927,8 +1030,8 @@ def _media_price_snapshot_date(ctx: RunContext) -> str | None:
 CANONICAL_STAGES: tuple[tuple[str, StageFn], ...] = (
     ("theme_load", stage_theme_load),
     ("collection", stage_collection),
-    ("analysis", stage_analysis),
     ("ranking", stage_ranking),
+    ("analysis", stage_analysis),
     ("brand_truth", stage_brand_truth),
     ("spin", stage_spin),
     ("copy", stage_copy),

@@ -458,6 +458,7 @@ Dropped topic: "Our competitors' winter jackets ranked" (opinion/commentary angl
 ## §11. Open Questions for Operator
 
 1. **Theme mixing:** May a single account's output serve multiple objectives simultaneously (e.g., educate AND sell)? Current design: no — a playbook is monolithic per objective. If operator wants mixed objectives, that is two themes, two cadences, two output sets (one branded as "learn", one as "shop"). Recommend deferring this until trial clarifies whether audience tolerates the split.
+   - **W8-10 update:** the operator's post-mix request (`generation.post_mix`: value_only/playbook/promotional counts, cross-topic-allocated within one theme/account) supersedes this no-mixing stance — implemented as the narrow slice described here, not the full mode/theme-split alternative. See the W8-10 build plan's Phase 5 for the minimal-cut implementation.
 
 2. **Angle weighting:** Should unpopular angles be actively down-weighted, or randomly selected among legal options? E.g., "curiosity-gap is legal in reach-and-community; should it dominate the 40% education slots or stay rare?" Recommend starting uniform; adjust after five real packs have measured engagement.
 

@@ -311,3 +311,114 @@ class TestResolveSecret:
             "MY_SECRET", config_dir=config_dir, legacy_path=None, env_path=explicit_env
         )
         assert (value, source) == ("right_one", "dotenv")
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 5 (``generation.post_mix``) + Phase 2 (humanness critic config
+# gate) — both parsed by ``load_theme_generation_config``.
+# ---------------------------------------------------------------------------
+
+
+class TestPostMixConfig:
+    def test_absent_block_defaults_to_all_zero(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text("theme:\n  name: hypedigitaly\n", encoding="utf-8")
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.post_mix.value_only == 0
+        assert generation.post_mix.playbook == 0
+        assert generation.post_mix.promotional == 0
+
+    def test_configured_counts_parse_correctly(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text(
+            "theme:\n  name: hypedigitaly\n"
+            "generation:\n  post_mix:\n    value_only: 2\n    playbook: 1\n    promotional: 1\n",
+            encoding="utf-8",
+        )
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.post_mix.value_only == 2
+        assert generation.post_mix.playbook == 1
+        assert generation.post_mix.promotional == 1
+
+
+class TestHumannessCriticEnabledConfig:
+    def test_defaults_to_true_when_absent(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text("theme:\n  name: hypedigitaly\n", encoding="utf-8")
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.humanness_critic_enabled is True
+
+    def test_can_be_explicitly_disabled(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text(
+            "theme:\n  name: hypedigitaly\ngeneration:\n  llm:\n    humanness_critic_enabled: false\n",
+            encoding="utf-8",
+        )
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.humanness_critic_enabled is False
+
+
+class TestRankingFreshnessDaysConfig:
+    """Q6 re-audit R1 (W8-10 Phase 6): ``ranking.ranking_freshness_days``."""
+
+    def test_defaults_to_fourteen_when_absent(self, tmp_path):
+        from hypeagent.config_load import load_theme_research_config
+
+        config_dir = tmp_path / "config"
+        (config_dir / "themes").mkdir(parents=True)
+        (config_dir / "themes" / "t.yaml").write_text(
+            "theme:\n  name: t\n  languages: [en]\n"
+            "ranking:\n  ranking_config_version: 1\n",
+            encoding="utf-8",
+        )
+        cfg = load_theme_research_config(config_dir, "t")
+        assert cfg.ranking.freshness_days == 14
+
+    def test_explicit_value_round_trips(self, tmp_path):
+        from hypeagent.config_load import load_theme_research_config
+
+        config_dir = tmp_path / "config"
+        (config_dir / "themes").mkdir(parents=True)
+        (config_dir / "themes" / "t.yaml").write_text(
+            "theme:\n  name: t\n  languages: [en]\n"
+            "ranking:\n  ranking_config_version: 1\n  ranking_freshness_days: 7\n",
+            encoding="utf-8",
+        )
+        cfg = load_theme_research_config(config_dir, "t")
+        assert cfg.ranking.freshness_days == 7
+
+
+class TestAnalystMaxImagesConfig:
+    def test_defaults_to_twelve_when_absent(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text("theme:\n  name: hypedigitaly\n", encoding="utf-8")
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.analyst_max_images == 12
+
+    def test_theme_yaml_can_raise_it(self, tmp_path):
+        config_dir = tmp_path / "config"
+        themes_dir = config_dir / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+        (themes_dir / "hypedigitaly.yaml").write_text(
+            "theme:\n  name: hypedigitaly\ngeneration:\n  llm:\n    analyst_max_images: 24\n",
+            encoding="utf-8",
+        )
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.analyst_max_images == 24
+
+    def test_real_theme_config_file_is_raised_to_twenty_four(self):
+        from pathlib import Path
+
+        config_dir = Path(__file__).resolve().parents[2] / "config"
+        generation = load_theme_generation_config(config_dir, "hypedigitaly")
+        assert generation.llm.analyst_max_images == 24

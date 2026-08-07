@@ -24,8 +24,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import statistics
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from hypeagent.store import ClusterObservation, SpecialCategoryLexicon, Store, StoredSignal
@@ -410,12 +411,42 @@ def apply_demand_modifier(composite: float) -> tuple[float, DemandModifierResult
     return composite * result.multiplier, result
 
 
-def band_for(composite: float, *, capped_to_medium: bool) -> str:
-    if composite >= 0.66 and not capped_to_medium:
+def band_for(
+    composite: float, *, capped_to_medium: bool, high_threshold: float = 0.66, low_threshold: float = 0.33
+) -> str:
+    """Low/Medium/High banding at explicit cut points. Sub-scores (fit,
+    freshness, confidence/availability, the per-candidate virality figure)
+    keep the historical absolute 0.33/0.66 cut points via the defaults here
+    — those are already 0..1-normalized, independent scores where an
+    absolute threshold is meaningful. The overall composite's own band
+    (Q6 re-audit R3) instead calls this with per-run QUANTILE thresholds —
+    see :func:`compute_quantile_thresholds` and its call site in :func:`rank`."""
+    if composite >= high_threshold and not capped_to_medium:
         return "High"
-    if composite >= 0.33:
+    if composite >= low_threshold:
         return "Medium"
     return "Low"
+
+
+def compute_quantile_thresholds(composites: list[float]) -> tuple[float, float]:
+    """Per-run quantile cut points for the overall composite band (Q6
+    re-audit R3): the bottom quarter of this run's scored candidates is
+    Low, the top quarter is High, the middle half is Medium — replacing the
+    old fixed 0.33/0.66 absolute cut points, which flattened an entire run
+    to "Low" whenever the composite spread was wide (observed: a 30x spread
+    across a live run's candidates, every one of them still under 0.33).
+
+    Deterministic: ``statistics.quantiles`` with the default (well-defined,
+    stdlib) ``method="inclusive"``. Falls back to the historical absolute
+    thresholds when fewer than 4 scored candidates exist this run — not
+    enough data points for a meaningful quartile split, and the fallback is
+    itself deterministic and previously-proven.
+    """
+    if len(composites) < 4:
+        return 0.33, 0.66
+    ordered = sorted(composites)
+    q1, _q2, q3 = statistics.quantiles(ordered, n=4, method="inclusive")
+    return q1, q3
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +641,15 @@ class RankingConfig:
     corroboration_bonus: float
     evidence_floor_min_candidates: dict[str, int]
     evidence_floor_min_families: dict[str, int]
+    # Q6 re-audit R1 (freshness window): a candidate is only SCORED when its
+    # most-recently-retrieved signal is within this many days of "now" —
+    # stale candidates are skipped before any fit/virality/composite work
+    # happens (cheap), while remaining fully visible to the cross-day dedupe
+    # index (``resolve_resurgence``/``store.observe_cluster`` never see this
+    # field at all; they key off ``cluster_key`` history in the store, not
+    # off which signals this run happened to load). Default matches the R1
+    # finding's own recommendation.
+    freshness_days: int = 14
 
 
 @dataclass
@@ -621,6 +661,12 @@ class RankingResult:
     active_family_count: int
     zero_passing_candidates: bool
     candidate_canonical_keys: dict[str, list[str]]
+    # Q6 re-audit R1: how many clustered candidates this run skipped before
+    # scoring because their most recent signal fell outside the freshness
+    # window (so a process summary/digest can show it, e.g. "566 stale
+    # Google News rows, 0 scored" made visible instead of silently rescoring
+    # the whole store every run).
+    stale_skipped_count: int = 0
 
 
 def _watch_term_tokens(terms: list[str]) -> set[str]:
@@ -656,11 +702,67 @@ def rank(
 
     scorecards: list[Scorecard] = []
     passing_by_language: dict[str, list[tuple[float, Scorecard]]] = {}
+    # Q6 re-audit R3: composite bands are assigned in a SECOND pass, once
+    # every candidate that passed the fit gate this run has been scored —
+    # quantile thresholds need the whole run's distribution first. Each
+    # entry is (composite, capped_to_medium, scorecard); scorecard.band
+    # carries a placeholder until the second pass fixes it up.
+    scored_for_banding: dict[str, list[tuple[float, bool, Scorecard]]] = {}
     candidate_canonical_keys: dict[str, list[str]] = {
         c.cluster_key: sorted({s.canonical_key for s in c.signals}) for c in candidates
     }
 
+    # Q6 re-audit R1: freshness window. Only a candidate whose most recently
+    # retrieved signal falls within this many days of "now" gets scored at
+    # all — cheaper (skipped BEFORE any fit/virality/composite work) and
+    # honest about what "generate" actually means (a stale row that keeps
+    # getting reloaded from the store every run was never a real candidate).
+    # This affects CANDIDACY only: ``store.observe_cluster``/
+    # ``resolve_resurgence`` below are keyed by ``cluster_key`` history in
+    # the store itself, never by which signals this run happened to load —
+    # a stale candidate skipped here does not touch the dedupe index at all
+    # (nothing to update: it did not reappear with anything new this run).
+    freshness_cutoff = moment - timedelta(days=max(0, config.freshness_days))
+    stale_skipped_count = 0
+
     for candidate in candidates:
+        if candidate.most_recent_retrieval < freshness_cutoff:
+            stale_skipped_count += 1
+            age_hours = (moment - candidate.most_recent_retrieval).total_seconds() / 3600.0
+            scorecards.append(
+                Scorecard(
+                    cluster_key=candidate.cluster_key,
+                    language=candidate.language,
+                    representative_title=candidate.representative_title,
+                    composite=None,
+                    band="N/A",
+                    sub_scores={},
+                    rationale={
+                        "freshness_window": (
+                            f"stale — most recent signal is {age_hours:.1f}h old, older than the "
+                            f"{config.freshness_days}-day freshness window; skipped before scoring (Q6 re-audit R1)"
+                        )
+                    },
+                    sources=sorted(candidate.sources),
+                    families=sorted(candidate.families),
+                    evidence_quality_label="not scored — stale (outside freshness window)",
+                    signal_class=classify_signal(candidate),
+                    signal_age_hours=age_hours,
+                    gate_status=f"skip: stale — older than the {config.freshness_days}-day freshness window",
+                    per_language_outcome="skip",
+                    per_language_outcome_rationale=(
+                        f"stale: most recent signal is {age_hours:.1f}h old "
+                        f"(freshness window {config.freshness_days} days)"
+                    ),
+                    ranking_config_version=config.version,
+                    fit_method=FIT_METHOD_LABEL,
+                    dedupe_status="not evaluated — skipped before scoring (stale)",
+                    what_changed="n/a — stale candidate skipped before scoring",
+                    demand_modifier_label="n/a — not scored",
+                )
+            )
+            continue
+
         watch_terms = _watch_term_tokens(watch_terms_by_language.get(candidate.language, []))
         fit_verdict = fit_judge.judge(candidate, watch_terms=watch_terms)
         gate = evaluate_fit_gate(
@@ -727,7 +829,10 @@ def rank(
 
         composite, demand_result = apply_demand_modifier(composite_pre_demand)
         capped_to_medium = not candidate.has_counted_evidence
-        band = band_for(composite, capped_to_medium=capped_to_medium)
+        # Placeholder — Q6 re-audit R3 fixes this up in the second pass below,
+        # once every candidate's composite is known and this run's per-
+        # language quantile thresholds can be computed.
+        band = "pending-quantile-band"
 
         observation = store.observe_cluster(
             cluster_key=candidate.cluster_key,
@@ -796,6 +901,12 @@ def rank(
             matched_terms=fit_verdict.matched_terms,
         )
 
+        # Every candidate that passed the fit gate this run counts toward
+        # this run's quantile distribution (Q6 re-audit R3), whether or not
+        # cross-day dedupe goes on to suppress it — banding and resurgence
+        # are independent concerns.
+        scored_for_banding.setdefault(candidate.language, []).append((composite, capped_to_medium, scorecard))
+
         if resurgence.outcome == "suppressed":
             scorecard.per_language_outcome = "skip"
             scorecard.per_language_outcome_rationale = f"suppressed by cross-day dedupe: {resurgence.what_changed}"
@@ -808,6 +919,19 @@ def rank(
 
         scorecards.append(scorecard)
         passing_by_language.setdefault(candidate.language, []).append((composite, scorecard))
+
+    # Q6 re-audit R3 — second pass: per-language quantile bands, now that
+    # every fit-gate-passed candidate's composite is known. EN and CS
+    # composites are never comparable (module note above), so thresholds
+    # are computed separately per language.
+    for language, entries in scored_for_banding.items():
+        low, high = compute_quantile_thresholds([composite for composite, _capped, _sc in entries])
+        for composite, capped_to_medium, sc in entries:
+            sc.band = band_for(composite, capped_to_medium=capped_to_medium, low_threshold=low, high_threshold=high)
+            sc.rationale["band"] = (
+                f"quantile band vs this run's {len(entries)} scored {language} candidate(s): "
+                f"Low < {low:.3f}, High >= {high:.3f}"
+            )
 
     top_by_language: dict[str, list[Scorecard]] = {}
     languages = languages or sorted(set(watch_terms_by_language.keys()) | set(passing_by_language.keys()))
@@ -846,5 +970,6 @@ def rank(
         active_family_count=active_family_count,
         zero_passing_candidates=zero_passing,
         candidate_canonical_keys=candidate_canonical_keys,
+        stale_skipped_count=stale_skipped_count,
     )
 

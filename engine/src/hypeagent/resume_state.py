@@ -98,6 +98,7 @@ def _ranking_result_to_dict(rr: RankingResult) -> dict[str, Any]:
         "active_family_count": rr.active_family_count,
         "zero_passing_candidates": rr.zero_passing_candidates,
         "candidate_canonical_keys": {k: list(v) for k, v in rr.candidate_canonical_keys.items()},
+        "stale_skipped_count": rr.stale_skipped_count,
     }
 
 
@@ -116,6 +117,7 @@ def _ranking_result_from_dict(d: dict[str, Any]) -> RankingResult:
         active_family_count=int(d.get("active_family_count", 1)),
         zero_passing_candidates=bool(d.get("zero_passing_candidates", True)),
         candidate_canonical_keys={k: list(v) for k, v in (d.get("candidate_canonical_keys") or {}).items()},
+        stale_skipped_count=int(d.get("stale_skipped_count", 0)),
     )
 
 

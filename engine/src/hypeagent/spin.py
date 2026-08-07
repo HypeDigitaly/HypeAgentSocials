@@ -15,10 +15,10 @@ not merely discouraged.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from hypeagent.brand_truth import BrandFacts, CtaOption, IcpSegment
-from hypeagent.config_load import MappingDistanceBands
+from hypeagent.config_load import MappingDistanceBands, PostMixConfig
 from hypeagent.ranking import Scorecard
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9À-žА-я]+")
@@ -64,6 +64,12 @@ class SpinResult:
     band: str
     value_only: bool
     rationale_line: str
+    # W8-10 Phase 5 (``generation.post_mix``): value_only | playbook |
+    # promotional. Defaults to "promotional" -- ``spin_for_scorecard`` never
+    # sets this itself (it stays fully distance-derived); only
+    # ``allocate_post_types`` assigns anything else, and only when a theme's
+    # ``post_mix`` block is non-zero.
+    post_type: str = "promotional"
 
     def to_yaml_dict(self) -> dict:
         return {
@@ -79,6 +85,7 @@ class SpinResult:
             "band": self.band,
             "value_only": self.value_only,
             "rationale_line": self.rationale_line,
+            "post_type": self.post_type,
         }
 
 
@@ -199,3 +206,61 @@ def spin_for_scorecard(
         value_only=value_only,
         rationale_line=rationale_line,
     )
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 5 — ``generation.post_mix``: a cross-topic post-type allocator,
+# deterministic, no LLM (same posture as the rest of this module). Runs
+# AFTER every candidate has already been spun (``stages.stage_spin`` calls it
+# right after the spin loop, before ``spin_results`` is persisted/stored).
+# ---------------------------------------------------------------------------
+
+
+def allocate_post_types(results: list[SpinResult], mix: PostMixConfig) -> list[SpinResult]:
+    """Assign ``post_type`` across ``results`` honouring ``mix``'s counts, in
+    a fixed priority order: value_only slots first, then playbook, then
+    promotional (promotional is never the first assignment this function
+    makes when any value_only/playbook slot is configured).
+
+    ``mix`` all-zero (the default) is a total no-op: ``results`` is returned
+    completely unchanged, in its original order — every asset keeps today's
+    fully distance-derived ``post_type``/``value_only`` behaviour.
+
+    When ``results`` has more entries than ``mix`` has slots for, the extra
+    entries are appended, in their original relative order, with their
+    already-computed ``post_type`` left untouched (today's distance-derived
+    behaviour) — never dropped, never forced into one of the three classes.
+
+    A ``value_only`` slot additionally overrides the assigned result to the
+    no-brand shape the marketer/copywriter audits called for: ``offer``
+    nulled, ``cta_class="none"``, ``cta_text=""`` — there was previously no
+    no-brand path at all (``mapping_distance=="far"`` still injected a
+    brand CTA + offer text)."""
+    if mix.value_only <= 0 and mix.playbook <= 0 and mix.promotional <= 0:
+        return list(results)
+
+    remaining = list(results)
+    allocated: list[SpinResult] = []
+
+    def _take(count: int, post_type: str) -> None:
+        for _ in range(count):
+            if not remaining:
+                return
+            sr = remaining.pop(0)
+            if post_type == "value_only":
+                sr = replace(
+                    sr, post_type=post_type, value_only=True,
+                    offer_id=None, offer_text=None, cta_class="none", cta_text="",
+                )
+            else:
+                sr = replace(sr, post_type=post_type)
+            allocated.append(sr)
+
+    _take(mix.value_only, "value_only")
+    _take(mix.playbook, "playbook")
+    _take(mix.promotional, "promotional")
+
+    # Extras beyond the configured mix: today's distance-derived behaviour,
+    # appended after every allocated slot, original relative order kept.
+    allocated.extend(remaining)
+    return allocated

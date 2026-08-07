@@ -8,9 +8,12 @@ import pytest
 
 from hypeagent.ranking import (
     FIT_METHOD_LABEL,
+    FitVerdict,
     Phase1DeterministicFitJudge,
     RankingConfig,
+    band_for,
     cluster_signals,
+    compute_quantile_thresholds,
     evaluate_fit_gate,
     rank,
 )
@@ -169,5 +172,174 @@ class TestFullRankOrchestration:
             assert result.zero_passing_candidates is True
             skipped = [sc for sc in result.all_scorecards if sc.gate_status.startswith("skip")]
             assert any("hard-excluded" in sc.gate_status for sc in skipped)
+        finally:
+            store.close()
+
+
+# ---------------------------------------------------------------------------
+# Q6 re-audit R1 — freshness window.
+# ---------------------------------------------------------------------------
+
+
+class TestFreshnessWindow:
+    def test_fresh_kept_stale_skipped_and_counted(self, tmp_path):
+        store = Store.open(tmp_path / "logs", tmp_path / "secrets")
+        try:
+            fresh = _signal("f1", "AI voice agents for customer support launch", age_hours=1)
+            # Deliberately matches the watch terms too, so the only reason
+            # it does not get scored is staleness, never the fit gate.
+            stale = _signal("s1", "Totally unrelated gardening tips article today", age_hours=400)
+            config = _config(brand_fit_floor=0.05, freshness_days=14)
+            result = rank(
+                store=store, signals=[fresh, stale],
+                watch_terms_by_language={"en": ["agents", "voice", "support", "gardening", "tips"]},
+                hard_exclude_topics=[], lexicon=_empty_lexicon(), config=config, run_id="r1",
+                languages=["en"],
+            )
+            assert result.stale_skipped_count == 1
+            stale_cards = [sc for sc in result.all_scorecards if sc.gate_status.startswith("skip: stale")]
+            assert len(stale_cards) == 1
+            assert stale_cards[0].composite is None
+            assert stale_cards[0].band == "N/A"
+            scored = [sc for sc in result.all_scorecards if sc.composite is not None]
+            assert len(scored) == 1
+            assert scored[0].representative_title.startswith("AI voice agents")
+            # The scored (fresh) candidate still made it into this run's
+            # generate list -- staleness filtering did not collaterally
+            # exclude it.
+            assert any(sc.representative_title.startswith("AI voice agents") for sc in result.top_by_language["en"])
+        finally:
+            store.close()
+
+    def test_no_stale_candidates_leaves_the_count_at_zero(self, tmp_path):
+        store = Store.open(tmp_path / "logs", tmp_path / "secrets")
+        try:
+            signals = [_signal("a", "AI agents for sales automation launch", age_hours=1)]
+            config = _config(brand_fit_floor=0.05)
+            result = rank(
+                store=store, signals=signals, watch_terms_by_language={"en": ["agents", "automation"]},
+                hard_exclude_topics=[], lexicon=_empty_lexicon(), config=config, run_id="r1", languages=["en"],
+            )
+            assert result.stale_skipped_count == 0
+        finally:
+            store.close()
+
+    def test_a_cluster_with_one_fresh_and_one_old_signal_is_not_skipped(self, tmp_path):
+        """R1's own carve-out: candidacy is filtered, not the dedupe index —
+        a cluster that merges an old signal with a legitimately fresh
+        corroborating one keeps ALL of its signals (old included) once any
+        one of them is fresh enough."""
+        store = Store.open(tmp_path / "logs", tmp_path / "secrets")
+        try:
+            old_signal = _signal(
+                "a", "AI agents for outbound sales launch", age_hours=400,
+                source="hacker_news", source_family="developer_technical_discourse",
+            )
+            fresh_signal = _signal(
+                "b", "AI agents for outbound sales launch today", age_hours=1,
+                source="product_hunt", source_family="launch_registries",
+            )
+            config = _config(brand_fit_floor=0.05, freshness_days=14)
+            result = rank(
+                store=store, signals=[old_signal, fresh_signal],
+                watch_terms_by_language={"en": ["agents", "outbound", "sales", "launch"]},
+                hard_exclude_topics=[], lexicon=_empty_lexicon(), config=config, run_id="r1", languages=["en"],
+            )
+            assert result.stale_skipped_count == 0
+            scored = [sc for sc in result.all_scorecards if sc.composite is not None]
+            assert len(scored) == 1  # merged into one cluster, not two
+            assert set(scored[0].families) == {"developer_technical_discourse", "launch_registries"}
+        finally:
+            store.close()
+
+    def test_default_freshness_days_is_fourteen(self):
+        config = _config()
+        assert config.freshness_days == 14
+
+
+# ---------------------------------------------------------------------------
+# Q6 re-audit R3 — quantile-based scorecard bands.
+# ---------------------------------------------------------------------------
+
+
+class _FixedFitJudge:
+    """A test-only ``FitJudge`` that always returns the same score,
+    isolating the composite's spread to the (also-controlled) virality
+    tier so the quantile-vs-absolute banding difference is unambiguous."""
+
+    def __init__(self, score: float):
+        self.score = score
+
+    def judge(self, candidate, *, watch_terms):
+        return FitVerdict(score=self.score, rationale="fixed for test", matched_terms=["agents"], method_label="test")
+
+
+class TestQuantileBands:
+    def test_compute_quantile_thresholds_falls_back_below_four_candidates(self):
+        assert compute_quantile_thresholds([0.1, 0.2, 0.3]) == (0.33, 0.66)
+
+    def test_compute_quantile_thresholds_is_deterministic(self):
+        composites = [0.02673, 0.09356, 0.16038, 0.24057]
+        first = compute_quantile_thresholds(composites)
+        second = compute_quantile_thresholds(list(reversed(composites)))
+        assert first == second
+
+    def test_band_for_still_supports_the_historical_absolute_thresholds(self):
+        # Sub-scores (fit/freshness/confidence/per-candidate virality) keep
+        # calling ``band_for`` with its own historical 0.33/0.66 defaults —
+        # unaffected by the composite's own quantile banding.
+        assert band_for(0.9, capped_to_medium=False) == "High"
+        assert band_for(0.5, capped_to_medium=False) == "Medium"
+        assert band_for(0.1, capped_to_medium=False) == "Low"
+
+    def test_run_does_not_flatten_a_narrow_spread_to_all_low(self, tmp_path):
+        """The exact defect the audit named: run e4d8's composites spread
+        30x, all still under the old absolute 0.33 threshold -> every
+        scorecard read "Low". Reproduced here with 4 well-separated,
+        entirely-under-0.33 composites; quantile banding must NOT collapse
+        them all to one band."""
+        store = Store.open(tmp_path / "logs", tmp_path / "secrets")
+        try:
+            titles = [
+                "Aardvark topic report one", "Bumblebee topic report two",
+                "Crocodile topic report three", "Dolphin topic report four",
+            ]
+            # Absolute-band-fallback tiers (see ``_config``'s hacker_news
+            # bands: low=5, mid=50, high=200) -> virality 0.1/0.35/0.6/0.9.
+            scores = [1, 10, 100, 300]
+            signals = [
+                _signal(f"c{i}", titles[i], age_hours=1, metrics={"score": scores[i]})
+                for i in range(4)
+            ]
+            config = _config(brand_fit_floor=0.05)
+            result = rank(
+                store=store, signals=signals, watch_terms_by_language={"en": []},
+                hard_exclude_topics=[], lexicon=_empty_lexicon(), config=config, run_id="r1",
+                languages=["en"], fit_judge=_FixedFitJudge(0.3),
+            )
+            scored = [sc for sc in result.all_scorecards if sc.composite is not None]
+            assert len(scored) == 4
+            assert all(sc.composite < 0.33 for sc in scored)  # every one under the old absolute threshold
+            bands = {sc.composite: sc.band for sc in scored}
+            assert len(set(bands.values())) > 1  # NOT flattened to a single band
+            assert "High" in bands.values()
+            assert "Low" in bands.values()
+            # The band rationale names this run's own quantile distribution.
+            assert all("quantile band vs this run" in sc.rationale.get("band", "") for sc in scored)
+        finally:
+            store.close()
+
+    def test_fewer_than_four_scored_candidates_falls_back_to_absolute_thresholds(self, tmp_path):
+        store = Store.open(tmp_path / "logs", tmp_path / "secrets")
+        try:
+            signals = [_signal("a", "AI agents for sales automation launch", age_hours=1, metrics={"score": 5})]
+            config = _config(brand_fit_floor=0.05)
+            result = rank(
+                store=store, signals=signals, watch_terms_by_language={"en": ["agents", "automation", "sales"]},
+                hard_exclude_topics=[], lexicon=_empty_lexicon(), config=config, run_id="r1", languages=["en"],
+            )
+            scored = [sc for sc in result.all_scorecards if sc.composite is not None]
+            assert len(scored) == 1
+            assert "0.33" in scored[0].rationale.get("band", "") or "0.660" in scored[0].rationale.get("band", "")
         finally:
             store.close()

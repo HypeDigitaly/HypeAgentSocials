@@ -170,6 +170,15 @@ ranking:
       mid: 20000
       high: 200000
 
+  # Q6 re-audit R1 (W8-10 Phase 6): only candidates whose most-recently-
+  # retrieved signal is within this many days are scored — stale rows that
+  # keep getting reloaded from the store every run (566 stale Google News
+  # rows in run e4d8, zero of which ever generated) are skipped before any
+  # fit/virality/composite work, not silently rescored forever. Cross-day
+  # dedupe (below) is unaffected — it is keyed by cluster history in the
+  # store, not by which signals a given run happens to load.
+  ranking_freshness_days: 14
+
   # Cross-day dedupe (§2.8a).
   dedupe_lookback_days: 30
   rejection_suppression_days: 14
@@ -220,6 +229,18 @@ generation:
   # picks per asset (W8-6), the engine does not select for it.
   exemplar_pool:
     - "calibration/en/structural_corpus.md"
+
+  # W8-10 Phase 5 — config-driven post-type mix (value_only/playbook/
+  # promotional), cross-topic-allocated by ``spin.allocate_post_types`` in
+  # that priority order. All-zero = OFF (today's fully distance-derived
+  # ``post_type``/``value_only`` behaviour, unchanged) — this stays off
+  # here until the Phase-7 operator-gated live confirmation run explicitly
+  # turns it on (plan: `docs/plans/.../recursive-stargazing-sunrise.md`
+  # Phase 7, `{value_only: 1, playbook: 1, promotional: 1}`).
+  post_mix:
+    value_only: 0
+    playbook: 0
+    promotional: 0
 
   # Disabled: no key exists for this goal. Config-driven so a future key
   # drops in with no code change.
@@ -274,9 +295,14 @@ generation:
     # may use the full 60 (hypeagent.llm.LlmClient._check_budget).
     qa_reserved_calls: 16
     # Up to this many downloaded Virlo thumbnails/carousel panels are sent
-    # to the N-A analyst as vision content-parts (base64), preferring full
-    # carousel panel sets over single video thumbnails.
-    analyst_max_images: 12
+    # to the N-A analyst as vision content-parts (base64), selected by
+    # VIEWS via the image<->item join manifest (not hash-sorted filenames)
+    # with a guaranteed video-thumbnail quota so person/talking-head
+    # evidence is never excluded (W8-10 Phase 8 fidelity-trace fix — the
+    # old 12-image cap silently dropped every one of a run's 6 person/
+    # talking-head thumbnails). Raised from 12: images are the cheap part
+    # of the prompt: caption trimming already keeps the token cost sane.
+    analyst_max_images: 24
     # Per-node max_tokens overrides (post-live-run token-starvation fix):
     # the old single default_max_tokens=1500 (kept below as the fallback
     # for any node not named here) truncated the N-A analyst's output
@@ -291,6 +317,13 @@ generation:
         max_tokens: 4000
       copywriter:
         max_tokens: 4000
+        # W8-10 Phase 1 (copywriter-audit finding #5): 0.4 is backwards for
+        # a voice task under LOOSE constraints -- low temperature there just
+        # means modal, AI-average English. The countable voice rules are now
+        # TIGHT structural constraints (rhythm/em-dash/antithesis/CTA
+        # counts), so a high temperature has somewhere safe to spend its
+        # variance: sentence choice and phrasing, not rule compliance.
+        temperature: 0.9
       prompt_crafter:
         max_tokens: 6000
       vision_qa:
@@ -319,7 +352,10 @@ generation:
     resolution_window_days: 14
     aspect_ratio: "1:1"  # legacy fallback for any destination not named below
     aspect_ratio_by_destination:
-      linkedin: "1:1"
+      # W8-10: LinkedIn feed target is 1.91:1; Kie/NB2 accepts enumerated
+      # ratios only, so 16:9 is the closest supported landscape (was 1:1,
+      # which wasted feed real estate and contradicted crafted prompts).
+      linkedin: "16:9"
       instagram_feed: "4:5"
     # Both classes default to the standard-tier Nano Banana 2 route; the
     # draft routes above stay registered for cheap iteration but are never

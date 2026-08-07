@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from hypeagent import spin
 from hypeagent.brand_truth import BrandFacts, Capability, CtaOption, IcpSegment
-from hypeagent.config_load import MappingDistanceBands
+from hypeagent.config_load import MappingDistanceBands, PostMixConfig
 from hypeagent.ranking import Scorecard
+from hypeagent.spin import SpinResult
 
 
 def _facts(**overrides):
@@ -127,3 +128,67 @@ class TestSpinForScorecard:
         result = spin.spin_for_scorecard(sc, _facts(), mapping_distance_bands=BANDS)
         for label in ("Topic:", "ICP:", "Pain:", "Offer:", "CTA:", "Band:"):
             assert label in result.rationale_line
+
+    def test_defaults_to_promotional_post_type(self):
+        sc = _scorecard("AI process automation for small businesses", ["automation", "businesses"])
+        result = spin.spin_for_scorecard(sc, _facts(), mapping_distance_bands=BANDS)
+        assert result.post_type == "promotional"
+        assert result.to_yaml_dict()["post_type"] == "promotional"
+
+
+def _spin_result(cluster_key: str, *, offer_text: str = "AI chatbots", value_only: bool = False) -> SpinResult:
+    return SpinResult(
+        cluster_key=cluster_key, topic=f"topic {cluster_key}", language="en", icp_id="icp-sme",
+        icp_text="Small businesses", pain="pain",
+        offer_id=None if value_only else "cap-x", offer_text=None if value_only else offer_text,
+        mapping_distance="far" if value_only else "near", mapping_score=0.5, cta_id="cta-web",
+        cta_class="content", cta_text="Learn more at example.com", band="Medium", value_only=value_only,
+        rationale_line="Topic: x · ICP: y · Pain: z · Offer: a · CTA: content · Band: Medium",
+    )
+
+
+class TestAllocatePostTypes:
+    def test_all_zero_mix_is_a_total_no_op(self):
+        results = [_spin_result("ck1"), _spin_result("ck2")]
+        out = spin.allocate_post_types(results, PostMixConfig())
+        assert out == results
+        assert [r.post_type for r in out] == ["promotional", "promotional"]
+
+    def test_ordering_is_value_only_then_playbook_then_promotional(self):
+        results = [_spin_result("ck1"), _spin_result("ck2"), _spin_result("ck3")]
+        mix = PostMixConfig(value_only=1, playbook=1, promotional=1)
+        out = spin.allocate_post_types(results, mix)
+        assert [r.post_type for r in out] == ["value_only", "playbook", "promotional"]
+        assert [r.cluster_key for r in out] == ["ck1", "ck2", "ck3"]
+
+    def test_value_only_slot_nulls_offer_and_cta(self):
+        results = [_spin_result("ck1", offer_text="AI chatbots")]
+        out = spin.allocate_post_types(results, PostMixConfig(value_only=1))
+        sr = out[0]
+        assert sr.post_type == "value_only"
+        assert sr.value_only is True
+        assert sr.offer_id is None
+        assert sr.offer_text is None
+        assert sr.cta_class == "none"
+        assert sr.cta_text == ""
+
+    def test_playbook_and_promotional_slots_keep_their_offer_and_cta(self):
+        results = [_spin_result("ck1")]
+        out = spin.allocate_post_types(results, PostMixConfig(playbook=1))
+        assert out[0].post_type == "playbook"
+        assert out[0].offer_text == "AI chatbots"
+        assert out[0].cta_class == "content"
+
+    def test_extras_beyond_the_mix_keep_original_post_type_and_relative_order(self):
+        results = [_spin_result("ck1"), _spin_result("ck2"), _spin_result("ck3")]
+        out = spin.allocate_post_types(results, PostMixConfig(value_only=1))
+        assert [r.cluster_key for r in out] == ["ck1", "ck2", "ck3"]
+        assert out[0].post_type == "value_only"
+        assert out[1].post_type == "promotional"
+        assert out[2].post_type == "promotional"
+
+    def test_more_mix_slots_than_results_never_raises(self):
+        results = [_spin_result("ck1")]
+        out = spin.allocate_post_types(results, PostMixConfig(value_only=5, playbook=5, promotional=5))
+        assert len(out) == 1
+        assert out[0].post_type == "value_only"

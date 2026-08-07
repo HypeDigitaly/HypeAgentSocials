@@ -103,11 +103,28 @@ def _image_response(body: bytes = _PNG_BYTES) -> FetchResponse:
     return FetchResponse(status=200, headers={}, body=body, latency_ms=1)
 
 
-def _qa_response(*, text_matches: bool, archetype_ok: bool, mismatches: list[str] | None = None, notes: str = "") -> FetchResponse:
+def _qa_response(
+    *,
+    text_matches: bool,
+    archetype_ok: bool,
+    mismatches: list[str] | None = None,
+    notes: str = "",
+    subject_relevant: bool = True,
+    logos_ok: bool = True,
+    composition_ok: bool = True,
+    series_consistent: bool = True,
+) -> FetchResponse:
     """An OpenRouter chat-completions response carrying N-E's JSON verdict
-    shape (same envelope ``hypeagent.llm``'s own tests use)."""
+    shape (same envelope ``hypeagent.llm``'s own tests use). W8-10: the four
+    art-director booleans default to ``True`` so every pre-existing
+    "expect a pass" test keeps passing unchanged -- only tests that
+    specifically exercise the new gate logic override one of them."""
     content = json.dumps(
-        {"text_matches": text_matches, "archetype_ok": archetype_ok, "mismatches": mismatches or [], "notes": notes}
+        {
+            "text_matches": text_matches, "archetype_ok": archetype_ok, "subject_relevant": subject_relevant,
+            "logos_ok": logos_ok, "composition_ok": composition_ok, "series_consistent": series_consistent,
+            "mismatches": mismatches or [], "notes": notes,
+        }
     )
     payload = {
         "id": "gen-qa-1",
@@ -1392,3 +1409,446 @@ class TestVisionQaGate:
             assert result.statuses[0].qa_verdict == "skipped"
         finally:
             store.close()
+
+
+# ---------------------------------------------------------------------------
+# W8-10 point 1: deterministic, $0 pre-LLM leak checks (pure functions).
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicPromptLeakCheck:
+    """(a) pre-generation sanity, scoped to the prompt's own ``<<...>>``
+    renderable-text spans."""
+
+    @pytest.mark.parametrize("banned", media_gen.BANNED_RENDERED_STRINGS)
+    def test_each_banned_string_detected_inside_a_quoted_span(self, banned):
+        prompt = f"A clean composition where the text <<{banned}>> appears, rendered without quotation marks."
+        findings = media_gen.deterministic_prompt_leak_check(prompt)
+        assert any(banned in f.lower() for f in findings)
+
+    def test_banned_string_case_insensitive(self):
+        prompt = "The text <<MONTSERRAT SemiBold>> appears clearly."
+        findings = media_gen.deterministic_prompt_leak_check(prompt)
+        assert findings
+
+    def test_banned_string_outside_a_quoted_span_is_not_flagged(self):
+        # STYLE-section prose legitimately names fonts/weights for the
+        # model's own reference -- only a <<...>> renderable span counts.
+        prompt = "body typeface family Montserrat SemiBold, described visually only, no <<Connect your CRM.>>."
+        findings = media_gen.deterministic_prompt_leak_check(prompt)
+        assert findings == []
+
+    def test_twelve_hex_token_detected_inside_a_quoted_span(self):
+        prompt = "The text <<4beb6d95640a>> appears as a watermark."
+        findings = media_gen.deterministic_prompt_leak_check(prompt)
+        assert any("hex" in f for f in findings)
+
+    def test_headline_wrapped_in_straight_quotes_detected(self):
+        prompt = 'The text "AI agents are changing outbound sales" appears clearly, rendered nicely.'
+        findings = media_gen.deterministic_prompt_leak_check(prompt, required_headline="AI agents are changing outbound sales")
+        assert findings
+
+    def test_headline_wrapped_in_curly_quotes_detected(self):
+        prompt = "The text “AI agents are changing outbound sales” appears clearly."
+        findings = media_gen.deterministic_prompt_leak_check(prompt, required_headline="AI agents are changing outbound sales")
+        assert findings
+
+    def test_headline_present_unquoted_is_clean(self):
+        prompt = "The text <<AI agents are changing outbound sales>> appears, rendered without quotation marks."
+        findings = media_gen.deterministic_prompt_leak_check(prompt, required_headline="AI agents are changing outbound sales")
+        assert findings == []
+
+    def test_clean_prompt_has_no_findings(self):
+        prompt = "A calm desk with a laptop, teal accent lighting, the text <<Connect your CRM.>> appears clearly."
+        findings = media_gen.deterministic_prompt_leak_check(prompt, required_headline="Connect your CRM.")
+        assert findings == []
+
+
+class TestDeterministicQaTextLeakCheck:
+    """(b) post-QA, scans the WHOLE mismatches/notes text (no <<...>>
+    convention applies to free-form QA prose)."""
+
+    def test_banned_string_anywhere_in_text_detected(self):
+        findings = media_gen.deterministic_qa_text_leak_check("the badge reads UI Label in the corner")
+        assert findings
+
+    def test_twelve_hex_token_anywhere_in_text_detected(self):
+        findings = media_gen.deterministic_qa_text_leak_check("a watermark reading 4beb6d95640a is visible")
+        assert findings
+
+    def test_clean_text_has_no_findings(self):
+        findings = media_gen.deterministic_qa_text_leak_check("the headline renders crisply with no defects")
+        assert findings == []
+
+
+class TestPreGenerationLeakCheckWiring:
+    """W8-10 point 1a: wired into ``MediaGenerator`` BEFORE ``createTask`` is
+    ever called -- a leaking crafted (or composed) prompt never reaches the
+    image model and never costs anything."""
+
+    def test_banned_string_in_crafted_prompt_blocks_submission_before_createtask(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(responses={})  # createTask must NEVER be called
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            plans = media_gen.plan_media_assets([_copy_status()])
+            plans[0].crafted_prompt = (
+                "STYLE (do not render any word from this section as visible text): clean composition.\n\n"
+                "RENDER: The text <<Montserrat SemiBold>> appears, rendered without surrounding quotation marks."
+            )
+            plans[0].qa_expected_text = "AI agents are changing outbound sales"
+            result = generator.process(plans)
+            trace.close()
+            assert result.statuses[0].status == media_gen.STATUS_PROMPT_LEAK_CHECK_FAILED
+            assert "createTask" not in " ".join(fetcher.calls)
+            assert result.total_spent_usd == 0.0
+        finally:
+            store.close()
+
+    def test_quote_wrapped_headline_in_crafted_prompt_blocks_submission(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(responses={})
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            plans = media_gen.plan_media_assets([_copy_status()])
+            plans[0].crafted_prompt = 'The text "AI agents are changing outbound sales" appears clearly, rendered nicely.'
+            plans[0].qa_expected_text = "AI agents are changing outbound sales"
+            result = generator.process(plans)
+            trace.close()
+            assert result.statuses[0].status == media_gen.STATUS_PROMPT_LEAK_CHECK_FAILED
+            assert "createTask" not in " ".join(fetcher.calls)
+        finally:
+            store.close()
+
+    def test_clean_crafted_prompt_is_never_blocked(self, tmp_path):
+        store = _store(tmp_path)
+        try:
+            trace = _trace(tmp_path)
+            fetcher = QueuedFetcher(
+                responses={
+                    "createTask": [_create_task_ok("task_clean")],
+                    "recordInfo": [_record_info_success("task_clean")],
+                    "chat/credit": [_credit_balance(100.0), _credit_balance(96.0)],
+                    RESULT_IMAGE_URL: [_image_response()],
+                }
+            )
+            generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher)
+            plans = media_gen.plan_media_assets(
+                [_copy_status()], crafted_prompts={"ck1_linkedin": _crafted_hero("ck1_linkedin")}
+            )
+            result = generator.process(plans)
+            trace.close()
+            assert result.statuses[0].status == "generated"
+        finally:
+            store.close()
+
+
+# ---------------------------------------------------------------------------
+# W8-10 points 2-3: verdict logic and the art-director rubric additions.
+# ---------------------------------------------------------------------------
+
+
+def _qa_client_and_trace(tmp_path, response: FetchResponse):
+    fetcher = QueuedFetcher(responses={"chat/completions": [response]})
+    trace = _trace(tmp_path)
+    return _llm_client(fetcher, trace), trace
+
+
+class TestMismatchesForceFail:
+    """W8-10 point 2: a non-empty ``mismatches`` list can NEVER be a pass,
+    regardless of the individual booleans -- the exact bug that shipped:
+    PASS with 'UII Label' garbling listed in mismatches."""
+
+    def test_nonempty_mismatches_forces_fail_even_when_every_bool_is_true(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True, mismatches=["cosmetic garbling noted"])
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.status == "fail"
+
+    def test_empty_mismatches_and_all_bools_true_passes(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.status == "pass"
+
+
+class TestNewVerdictFieldsGateLogic:
+    """W8-10 point 3: overall pass requires text_matches AND archetype_ok
+    AND subject_relevant AND logos_ok AND composition_ok AND
+    (series_consistent OR is_cover OR no cover available) -- each new bool
+    false (with everything else clean) must force an overall fail."""
+
+    @pytest.mark.parametrize("field", ["subject_relevant", "logos_ok", "composition_ok"])
+    def test_each_new_bool_false_forces_fail(self, tmp_path, field):
+        response = _qa_response(text_matches=True, archetype_ok=True, **{field: False})
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.status == "fail"
+        assert getattr(result, field) is False
+
+    def test_new_verdict_fields_are_parsed_onto_the_result(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.subject_relevant is True
+        assert result.logos_ok is True
+        assert result.composition_ok is True
+        assert result.series_consistent is True
+        doc = result.to_yaml_dict()
+        assert doc["subject_relevant"] is True
+        assert doc["logos_ok"] is True
+        assert doc["composition_ok"] is True
+        assert doc["series_consistent"] is True
+
+    def test_series_consistent_false_forces_fail_when_cover_reference_provided(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True, series_consistent=False)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/slide_02",
+            is_cover=False, cover_image_bytes=_PNG_BYTES, cover_mime="image/png",
+        )
+        trace.close()
+        assert result.status == "fail"
+
+    def test_series_consistent_false_is_ignored_on_a_cover_slide(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True, series_consistent=False)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/slide_01",
+            is_cover=True, cover_image_bytes=None,
+        )
+        trace.close()
+        assert result.status == "pass"
+
+    def test_series_consistent_false_is_ignored_when_no_cover_image_available(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True, series_consistent=False)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/slide_02",
+            is_cover=False, cover_image_bytes=None,
+        )
+        trace.close()
+        assert result.status == "pass"
+
+
+class TestPostQaDeterministicLeakForcesFail:
+    """W8-10 point 1b: the same deterministic scan re-run over the QA
+    response's own mismatches/notes text -- catches the LLM itself echoing
+    a garbled scaffolding word without flagging it as a mismatch."""
+
+    def test_banned_string_in_notes_forces_fail_even_with_clean_mismatches(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True, notes="the badge shows UI Label clearly")
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.status == "fail"
+        assert any("deterministic check" in m for m in result.mismatches)
+
+
+# ---------------------------------------------------------------------------
+# W8-10 point 3: series-consistency second-image wiring end-to-end.
+# ---------------------------------------------------------------------------
+
+
+class TestSeriesConsistencySecondImageWiring:
+    def _carousel_setup(self, tmp_path, qa_responses):
+        store = _store(tmp_path)
+        trace = _trace(tmp_path)
+        fetcher = QueuedFetcher(
+            responses={
+                "createTask": [_create_task_ok("task_cs1"), _create_task_ok("task_cs2")],
+                "recordInfo": [_record_info_success("task_cs1"), _record_info_success("task_cs2")],
+                "chat/credit": [_credit_balance(100.0), _credit_balance(96.0), _credit_balance(92.0)],
+                RESULT_IMAGE_URL: [_image_response(), _image_response()],
+                "chat/completions": qa_responses,
+            }
+        )
+        llm_client = _llm_client(fetcher, trace)
+        media_config = _media_config(per_run_usd_cap=10.0, per_run_count_cap=10, per_day_usd_cap=10.0)
+        generator = _generator(tmp_path, store=store, trace=trace, fetcher=fetcher, llm_client=llm_client, media_config=media_config)
+        statuses_in = [_carousel_copy_status(n_slides=2)]
+        crafted = {"ck1_instagram_feed": _crafted_carousel("ck1_instagram_feed", 2)}
+        plans = media_gen.plan_media_assets(statuses_in, crafted_prompts=crafted)
+        return store, trace, fetcher, generator, plans
+
+    def _qa_request_image_counts(self, fetcher):
+        bodies = [json.loads(b) for url, b in zip(fetcher.calls, fetcher.request_bodies) if "chat/completions" in url]
+        counts = []
+        for body in bodies:
+            content = body["messages"][1]["content"]
+            counts.append(sum(1 for part in content if isinstance(part, dict) and part.get("type") == "image_url"))
+        return counts
+
+    def test_non_cover_slide_gets_cover_as_second_image_when_available(self, tmp_path):
+        store, trace, fetcher, generator, plans = self._carousel_setup(
+            tmp_path,
+            [
+                _qa_response(text_matches=True, archetype_ok=True),  # slide_01 (cover)
+                _qa_response(text_matches=True, archetype_ok=True),  # slide_02
+            ],
+        )
+        try:
+            result = generator.process(plans)
+            trace.close()
+            assert [s.status for s in result.statuses] == ["generated", "generated"]
+            counts = self._qa_request_image_counts(fetcher)
+            assert counts == [1, 2]  # cover: itself only; slide_02: itself + cover reference
+        finally:
+            store.close()
+
+    def test_cover_slide_series_consistent_false_does_not_fail_it(self, tmp_path):
+        store, trace, fetcher, generator, plans = self._carousel_setup(
+            tmp_path,
+            [
+                _qa_response(text_matches=True, archetype_ok=True, series_consistent=False),  # slide_01 (cover)
+                _qa_response(text_matches=True, archetype_ok=True),  # slide_02
+            ],
+        )
+        try:
+            result = generator.process(plans)
+            trace.close()
+            by_slot = {s.slot: s for s in result.statuses}
+            assert by_slot["slide_01"].status == "generated"
+            assert by_slot["slide_01"].qa_verdict == "pass"
+        finally:
+            store.close()
+
+    def test_non_cover_slide_series_inconsistent_fails(self, tmp_path):
+        store, trace, fetcher, generator, plans = self._carousel_setup(
+            tmp_path,
+            [
+                _qa_response(text_matches=True, archetype_ok=True),  # slide_01 (cover) -- passes
+                _qa_response(text_matches=True, archetype_ok=True, series_consistent=False),  # slide_02
+                # attempt 2 regeneration for slide_02 after the fail above:
+                _qa_response(text_matches=True, archetype_ok=True),
+            ],
+        )
+        try:
+            fetcher.responses["createTask"].append(_create_task_ok("task_cs2_retry"))
+            fetcher.responses["recordInfo"].append(_record_info_success("task_cs2_retry"))
+            fetcher.responses["chat/credit"].append(_credit_balance(88.0))
+            fetcher.responses[RESULT_IMAGE_URL].append(_image_response())
+            result = generator.process(plans)
+            trace.close()
+            by_slot = {s.slot: s for s in result.statuses}
+            assert by_slot["slide_01"].qa_verdict == "pass"
+            # slide_02 failed series_consistent on attempt 1, regenerated, then passed.
+            assert by_slot["slide_02"].qa_verdict == "pass"
+        finally:
+            store.close()
+
+
+# ---------------------------------------------------------------------------
+# W8-10 Phase 8 (dynamic inspiration) -- mode-aware QA rubric.
+# ---------------------------------------------------------------------------
+
+
+class TestQaRubricIsModeAware:
+    """W8-10 Phase 8: ``QA_SYSTEM_PROMPT`` must branch its judgment per
+    register/mode -- a photoreal UGC image is judged on photorealism,
+    sticker-text legibility, person non-identifiability, and logo fidelity,
+    never on editorial layout expectations. Verdict schema is unchanged
+    (module docstring); only the rubric TEXT branches."""
+
+    def test_rubric_mentions_photographic_modes_and_their_own_criteria(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "photoreal_lifestyle_sticker" in lowered or "photographic register" in lowered
+        assert "photorealism" in lowered
+        assert "sticker-text legibility" in lowered or "sticker text" in lowered
+
+    def test_rubric_says_editorial_layout_does_not_apply_to_photographic_modes(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "does not apply to a photographic mode" in lowered or "never fail composition_ok" in lowered
+
+    def test_rubric_states_person_policy_synthetic_allowed_identifiable_banned(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "synthetic" in lowered
+        assert "non-identifiable" in lowered
+        assert "permitted" in lowered or "expected" in lowered
+
+    def test_rubric_fails_identifiable_or_celebrity_resemblance(self):
+        lowered = media_gen.QA_SYSTEM_PROMPT.lower()
+        assert "resembles" in lowered
+        assert "must fail" in lowered
+        assert "celebrity" in lowered
+
+
+class TestRunVisionQaThreadsMode:
+    def test_mode_reaches_the_qa_request(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="ugc-photo-caption", register="photographic_ugc", mode="photoreal_lifestyle_sticker",
+            trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        fetcher = llm_client.fetcher
+        sent_body = json.loads(fetcher.request_bodies[0])
+        user_text = json.dumps(sent_body["messages"][1]["content"])
+        assert "photoreal_lifestyle_sticker" in user_text
+
+    def test_mode_defaults_to_none_and_never_raises(self, tmp_path):
+        response = _qa_response(text_matches=True, archetype_ok=True)
+        llm_client, trace = _qa_client_and_trace(tmp_path, response)
+        result = media_gen.run_vision_qa(
+            llm_client=llm_client, image_bytes=_PNG_BYTES, mime="image/png", expected_text="Headline",
+            archetype="editorial", register="editorial", trace=trace, asset_id="a/hero",
+        )
+        trace.close()
+        assert result.status == "pass"
+
+
+class TestPlanMediaAssetsThreadsQaMode:
+    def test_hero_plan_carries_the_crafted_sets_mode(self):
+        from hypeagent import promptcraft
+
+        crafted = promptcraft.CraftedPromptSet(
+            asset_id="ck1_linkedin", images=[promptcraft.CraftedImage(slot="hero", prompt="a photo")],
+            archetype="ugc-photo-caption", register="photographic_ugc", mode="photoreal_lifestyle_sticker",
+        )
+        plans = media_gen.plan_media_assets([_copy_status()], crafted_prompts={"ck1_linkedin": crafted})
+        assert plans[0].qa_mode == "photoreal_lifestyle_sticker"
+
+    def test_hero_plan_without_crafted_set_has_no_qa_mode(self):
+        plans = media_gen.plan_media_assets([_copy_status()])
+        assert plans[0].qa_mode is None
+
+    def test_slide_plans_carry_the_crafted_sets_mode(self):
+        from hypeagent import promptcraft
+
+        crafted = promptcraft.CraftedPromptSet(
+            asset_id="ck1_instagram_feed",
+            images=[
+                promptcraft.CraftedImage(slot="slide_01", prompt="p1"),
+                promptcraft.CraftedImage(slot="slide_02", prompt="p2"),
+            ],
+            archetype="person-plus-stickers", register="photographic_ugc", mode="photoreal_person_ugc",
+        )
+        status = _carousel_copy_status(n_slides=2)
+        plans = media_gen.plan_media_assets([status], crafted_prompts={"ck1_instagram_feed": crafted})
+        assert all(p.qa_mode == "photoreal_person_ugc" for p in plans)

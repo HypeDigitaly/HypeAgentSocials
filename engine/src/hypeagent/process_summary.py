@@ -854,7 +854,9 @@ def _section_media(*, run_dir: Path, config_dir: Path, events: list[dict[str, An
         if qa:
             lines.append(
                 f"- N-E vision-QA: **{qa.get('status', '—')}** "
-                f"(text_matches={qa.get('text_matches')}, archetype_ok={qa.get('archetype_ok')}"
+                f"(text_matches={qa.get('text_matches')}, archetype_ok={qa.get('archetype_ok')}, "
+                f"subject_relevant={qa.get('subject_relevant')}, logos_ok={qa.get('logos_ok')}, "
+                f"composition_ok={qa.get('composition_ok')}, series_consistent={qa.get('series_consistent')}"
                 + (f", skip_reason={qa.get('skip_reason')}" if qa.get("skip_reason") else "")
                 + ")"
             )
