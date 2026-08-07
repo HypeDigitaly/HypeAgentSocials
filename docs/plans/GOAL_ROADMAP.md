@@ -90,10 +90,9 @@ The goal's completion criterion is the **test run**, and the test run defines th
       `state`/`resultJson`/`creditsConsumed`; `model` echoes request (non-authoritative,
       §5.6 three-state rule governs). Credit balance: GET /api/v1/chat/credit.
       Smoke `2026-08-07_30f1`: held copy → media plans only, $0, zero API calls.
-- [ ] **M4b — `--resume <run_id>` CLI** (prereq discovered for M5): re-enter an
-      existing run dir and continue copy→media→packaging, consuming copy_responses;
-      without it a same-day second full run hits cross-day dedupe suppression instead
-      of completing the held assets.
+- [x] **M4b — `--resume <run_id>` CLI** (commit 2f35ae7, 2026-08-07). 164/164 tests.
+      Re-enters copy→media→packaging→digest via persisted resume_state.yaml; trace seq
+      continues monotonically with a resume decision marker; no dedupe re-trigger.
       **API surface (verified 2026-08-07 from docs.kie.ai/market/quickstart):** unified
       jobs API — `POST https://api.kie.ai/api/v1/jobs/createTask`, poll
       `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=...`, `Authorization: Bearer`;
@@ -109,12 +108,31 @@ The goal's completion criterion is the **test run**, and the test run defines th
       model picks brand assets per W8-6 (taste, not truth). Spend telemetry in trace
       (spend events) + digest cost lines go live.
       → tests incl. kill/resume without double-spend, commit, **/compact**.
-- [ ] **M5 — THE FINISH: small end-to-end test run.** One interactive run, EN only:
-      Virlo latest AI trends (+ free collectors) → ranking → spin → copy → gates →
-      **2–3 Kie images, draft tier, a few dollars max** → pack with digest, scorecards,
-      spin rationale, provenance, spend reconciliation vs Kie credit balance, trace.md.
-      Verify: no publish path touched, disclosure/provenance recorded, redaction holds.
-      Present the pack to the operator. **Goal complete.**
+- [x] **M5 — THE FINISH: small end-to-end test run. DONE 2026-08-07.**
+      Run **`2026-08-07_7ded`** (fresh run + two `--resume` invocations, exit 0 each):
+      - **Virlo live AI trends in**: "Claude AI for Productivity and Business Hacks",
+        "AI Tools for Lead Generation (General)", "Claude AI for Real Estate
+        Professionals" (short_form_trends family, AI Trends Tracker monitor read).
+      - **HypeDigitaly spin**: lead-gen topic mapped to HypeLead (adjacent,
+        product-adjacent CTA); far topics forced value-only with content CTA.
+      - **Operator copy** (Claude-as-operator) for 2 assets; **the claim gate blocked
+        attempt 1 of the LinkedIn asset live** ("treating AI as…" tripped the
+        therapeutic lexicon's 'treat' — §14.1a over-blocking by design), repair
+        request attempt 2 written with the span named, reworded copy passed. The
+        repair loop is proven on real content, not just tests.
+      - **2 real Kie images generated** (google/nano-banana draft, $0.02 each,
+        8 credits total; balance 10072→10064): both exactly on-brief, people-free,
+        no text, no logos. Provenance `assumed-as-requested`, checksums recorded,
+        provider URLs nowhere in pack, key nowhere in artifacts (grep-verified).
+      - Spend ledger: exactly 2 intent rows, 1 paid submission each, no re-billing
+        across resumes. Pack: digest + scorecards + spin rationale + provenance +
+        media under `logs/runs/2026-08-07_7ded/pack/`. Nothing published; Postiz
+        untouched. **W8-7 GOAL COMPLETE.**
+
+## Post-goal backlog (not part of W8-7; next campaign picks from here)
+- Czech copy path (M3 designed it in; exercise it), logo overlay composition (§4.4a),
+  LLM judge halves of the gates (spin/voice/claim pass 2), video pipeline (Phase 3-full),
+  Postiz draft delivery (Phase 6 gate — counsel re-ask fires once there, per W8-4).
 
 ## Standing constraints that bind every milestone (do not re-derive)
 
